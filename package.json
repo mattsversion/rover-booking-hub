@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "generate": "prisma generate",
     "migrate": "prisma migrate dev --name init",
+    "prisma:generate": "npx prisma generate",
     "test": "node tests/run.js",
     "build": "prisma generate",
     "postinstall": "prisma generate"
@@ -29,7 +30,6 @@
     "puppeteer-extra-plugin-stealth": "^2.11.2"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0",
-    "prisma": "^5.22.0"
+    "nodemon": "^3.1.0"
   }
 }
