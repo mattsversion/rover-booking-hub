@@ -10,11 +10,11 @@
     "migrate": "prisma migrate dev --name init",
     "prisma:generate": "npx prisma generate",
     "test": "node tests/run.js",
-    "build": "prisma generate",
-    "postinstall": "prisma generate"
+    "build": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "prisma": "^5.22.0",
     "cookie-parser": "^1.4.6",
     "dayjs": "^1.11.11",
     "dotenv": "^16.4.5",
@@ -25,9 +25,9 @@
     "js-yaml": "^4.1.0",
     "morgan": "^1.10.0",
     "node-cron": "^3.0.3",
-    "puppeteer": "^24.23.0",
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2"
+    "puppeteer": "^23",
+    "puppeteer-extra": "^3",
+    "puppeteer-extra-plugin-stealth": "^2"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
