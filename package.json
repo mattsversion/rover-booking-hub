@@ -9,10 +9,11 @@
     "generate": "prisma generate",
     "migrate": "prisma migrate dev --name init",
     "test": "node tests/run.js",
+    "build": "prisma generate",
     "postinstall": "prisma generate"
   },
   "dependencies": {
-    "@prisma/client": "^5.17.0",
+    "@prisma/client": "^5.22.0",
     "cookie-parser": "^1.4.6",
     "dayjs": "^1.11.11",
     "dotenv": "^16.4.5",
@@ -29,6 +30,6 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.0",
-    "prisma": "^5.17.0"
+    "prisma": "^5.22.0"
   }
 }
