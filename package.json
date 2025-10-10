@@ -3,15 +3,11 @@
   "version": "1.0.0",
   "type": "module",
   "main": "src/server.js",
-  "scripts": {
-    "dev": "nodemon src/server.js",
-    "start": "node src/server.js",
-    "generate": "prisma generate",
-    "migrate": "prisma migrate dev --name init",
-    "prisma:generate": "npx prisma generate",
-    "test": "node tests/run.js",
-    "build": "prisma generate"
-  },
+"scripts": {
+  "start": "node src/server.js",
+  "dev": "nodemon src/server.js",
+  "prisma:generate": "npx prisma generate"
+},
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "prisma": "^5.22.0",
