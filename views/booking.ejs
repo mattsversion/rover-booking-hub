@@ -1,0 +1,209 @@
+<h2 style="margin-top:0;"><%= booking.clientName %></h2>
+<div class="muted">
+  <b>Status:</b> <%= booking.status %> •
+  <b>Service:</b> <%= booking.serviceType %> •
+  <b>Dogs:</b> <%= booking.dogsCount || 1 %>
+</div>
+<div class="muted">
+  <%= new Date(booking.startAt).toLocaleString() %> → <%= new Date(booking.endAt).toLocaleString() %>
+</div>
+
+<div class="actions">
+  <form onsubmit="return doAction(event,'confirm')"><button>Confirm + Calendar</button></form>
+  <form onsubmit="return doAction(event,'decline')"><button class="danger">Decline</button></form>
+  <button class="ghost" type="button" onclick="copyTemplate('cancel')">Copy Cancel Message</button>
+  <a class="ghost" href="/">Back</a>
+</div>
+
+<!-- ==================== DOG INFO ==================== -->
+<h3>Dog Info</h3>
+<div class="card">
+
+  <!-- Suspicious banner -->
+  <div id="suspicious-banner" style="display:none;background:#fff3cd;border:1px solid #ffeeba;padding:8px;border-radius:8px;margin-bottom:8px;">
+    ⚠️ This profile looks incomplete for a popular breed (no photos + no instructions).
+    <button class="ghost" type="button" onclick="copyTemplate('ask-photos')">Copy Ask-Photos</button>
+  </div>
+
+  <!-- Import by URL -->
+  <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0;">
+    <input id="roverUrl" placeholder="Paste Rover Dog Profile URL (…/dogs/XXXXX/)" style="flex:1; min-width:240px;">
+    <button class="ghost" type="button" onclick="importFromRoverUrl()">Import This Dog</button>
+    <button class="ghost" type="button" onclick="importFromRover()">Import from Rover Inbox</button>
+  </div>
+
+  <!-- Existing pets -->
+  <div id="pets">
+    <% if (!booking.pets.length) { %>
+      <div class="muted">No pet added yet. Add one below.</div>
+    <% } %>
+    <% booking.pets.forEach(p => { %>
+      <div class="card" style="margin:8px 0;">
+        <div><b><%= p.name %></b> <span class="muted"><%= p.breed || 'Breed?' %></span></div>
+        <div class="muted">Age: <%= p.ageYears ?? '—' %> • Weight: <%= p.weightLbs ?? '—' %> lbs</div>
+        <div class="muted">Special needs: <%= p.instructions || '—' %></div>
+        <% if (p.photoUrl) { %>
+          <img src="<%= p.photoUrl %>" alt="dog photo" style="max-width:120px;border-radius:10px;margin-top:6px;">
+        <% } %>
+      </div>
+    <% }) %>
+  </div>
+
+  <!-- Add / Update a pet -->
+  <form id="pet-form" onsubmit="return savePet(event)" style="margin-top:8px;">
+    <input type="hidden" name="petId" value="">
+    <div class="row" style="gap:8px;flex-wrap:wrap;">
+      <input name="name" placeholder="Name" required>
+      <input name="breed" placeholder="Breed">
+      <input name="ageYears" placeholder="Age (years)" inputmode="numeric">
+      <input name="weightLbs" placeholder="Weight (lbs)" inputmode="decimal">
+      <input name="photoUrl" placeholder="Photo URL (optional)">
+    </div>
+    <div>
+      <textarea name="instructions" placeholder="Special needs / instructions" rows="3" style="width:100%;margin-top:8px;"></textarea>
+    </div>
+    <button style="margin-top:8px;">Save Pet</button>
+  </form>
+</div>
+
+<!-- ==================== EDIT / RESCHEDULE ==================== -->
+<h3>Edit / Reschedule</h3>
+<div class="card">
+  <form id="edit-form" onsubmit="return saveBooking(event)">
+    <div class="row" style="gap:8px;flex-wrap:wrap;">
+      <input name="serviceType" placeholder="Service Type" value="<%= booking.serviceType %>">
+      <input name="dogsCount"  placeholder="Dogs" inputmode="numeric" value="<%= booking.dogsCount || 1 %>" style="max-width:100px;">
+      <input type="datetime-local" name="startAt" value="<%= new Date(booking.startAt).toISOString().slice(0,16) %>">
+      <input type="datetime-local" name="endAt"   value="<%= new Date(booking.endAt).toISOString().slice(0,16) %>">
+    </div>
+    <textarea name="notes" rows="2" placeholder="Notes" style="width:100%;margin-top:8px;"><%= booking.notes || '' %></textarea>
+    <div class="actions" style="margin-top:8px;">
+      <button class="ghost" type="button" onclick="checkAvailability()">Check Availability</button>
+      <button>Save Changes</button>
+    </div>
+  </form>
+  <div id="avail-result" class="muted" style="margin-top:6px;"></div>
+</div>
+
+<!-- ==================== MESSAGES ==================== -->
+<h3>Messages</h3>
+<ul class="thread">
+  <% booking.messages.forEach(m => { %>
+    <li class="bubble">
+      <div class="muted"><%= m.direction %> • <%= new Date(m.createdAt).toLocaleString() %></div>
+      <div><%= m.body %></div>
+    </li>
+  <% }) %>
+</ul>
+
+<script>
+async function doAction(e, kind){
+  e.preventDefault();
+  const url = kind === 'confirm'
+    ? '/api/actions/confirm/<%= booking.id %>'
+    : '/api/actions/decline/<%= booking.id %>';
+  const res = await fetch(url, { method:'POST' });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error || 'Action failed'); return false; }
+  if(kind === 'confirm'){
+    alert(`Confirmed. Dogs overlapping: ${data.newTotal}. Calendar is now ${data.transparency === 'opaque' ? 'BUSY' : 'FREE'}.`);
+  }
+  location.reload();
+  return false;
+}
+
+async function importFromRover(){
+  const res = await fetch('/api/rover/import/<%= booking.id %>', { method:'POST' });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error || 'Import failed'); return; }
+  alert(`Imported ${data.pets.length} pet profile(s) from Rover.`);
+  location.reload();
+}
+
+async function importFromRoverUrl(){
+  const url = document.getElementById('roverUrl').value.trim();
+  if(!url){ alert('Paste a Rover dog profile URL first.'); return; }
+  const res = await fetch('/api/rover/import-by-url/<%= booking.id %>', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ url })
+  });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error || 'Import failed'); return; }
+  alert(`Imported ${data.pet.name || 'dog'}.`);
+  location.reload();
+}
+
+async function savePet(e){
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = {};
+  fd.forEach((v,k)=> body[k]=v);
+  const res = await fetch('/api/bookings/<%= booking.id %>/pets', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error||'Failed'); return false; }
+  location.reload();
+  return false;
+}
+
+async function copyTemplate(kind){
+  const res = await fetch(`/api/templates/${kind}/<%= booking.id %>`);
+  const data = await res.json();
+  if(!res.ok){ alert(data.error||'Failed'); return; }
+  await navigator.clipboard.writeText(data.text);
+  alert('Copied to clipboard. Paste into Samsung Messages.');
+}
+
+async function saveBooking(e){
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = {};
+  fd.forEach((v,k)=> body[k]=v);
+  const res = await fetch('/api/bookings/<%= booking.id %>', {
+    method:'PATCH',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error||'Save failed'); return false; }
+  alert('Saved.');
+  location.reload();
+  return false;
+}
+
+async function checkAvailability(){
+  const f = document.getElementById('edit-form');
+  const startAt = f.startAt.value;
+  const endAt   = f.endAt.value;
+  if(!startAt || !endAt){ alert('Pick start and end first.'); return; }
+  const res = await fetch(`/api/availability?start=${encodeURIComponent(startAt)}&end=${encodeURIComponent(endAt)}`);
+  const data = await res.json();
+  const el = document.getElementById('avail-result');
+  if(!res.ok){ el.textContent = data.error || 'Failed.'; return; }
+
+  if(data.busy.length){
+    el.innerHTML = `⛔ Calendar shows <b>${data.busy.length}</b> busy block(s) in that window.`;
+  } else if (data.willExceed) {
+    el.innerHTML = `⚠️ You are already at or above capacity (dogs overlapping: <b>${data.dogsOverlapping}</b>).`;
+  } else {
+    el.innerHTML = `✅ Looks good. Dogs overlapping: <b>${data.dogsOverlapping}</b>. No calendar conflicts.`;
+  }
+}
+
+// Suspicious banner logic
+(function(){
+  const pets = <%- JSON.stringify(booking.pets || []) %>;
+  const popular = new Set([
+    'Golden Retriever','Labrador Retriever','German Shepherd','French Bulldog',
+    'Poodle','Bulldog','Beagle','Rottweiler','Dachshund','German Shorthaired Pointer',
+    'Yorkshire Terrier','Boxer','Siberian Husky','Shih Tzu','Chihuahua'
+  ]);
+  function cap(s){ return (s||'').trim().toLowerCase().replace(/\b\w/g, c=>c.toUpperCase()); }
+  const suspicious = pets.some(p => (!p.photoUrl) && (!p.instructions || !p.instructions.trim()) && (p.breed && popular.has(cap(p.breed))));
+  if(suspicious) document.getElementById('suspicious-banner').style.display = 'block';
+})();
+</script>

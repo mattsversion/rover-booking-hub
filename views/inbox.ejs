@@ -1,0 +1,21 @@
+
+<h2 style="margin-top:0;">Inbox</h2>
+<div class="list">
+  <% if (!bookings.length) { %>
+    <div class="card">No bookings yet. Send a test SMS to your Samsung number.</div>
+  <% } %>
+  <% bookings.forEach(b => { %>
+    <div class="card">
+      <div class="row">
+        <div>
+          <div><b><%= b.clientName %></b></div>
+          <div class="muted"><%= b.serviceType %> • <%= b.status %></div>
+        </div>
+        <a href="/booking/<%= b.id %>">Open</a>
+      </div>
+      <div class="muted">
+        <%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %>
+      </div>
+    </div>
+  <% }) %>
+</div>
