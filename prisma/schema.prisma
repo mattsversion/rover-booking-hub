@@ -45,7 +45,15 @@ model Message {
   toLabel   String?
   body      String
   createdAt DateTime @default(now())
+    // ⭐ NEW fields for outbound queue
+  toPhone   String?      // where to send
+  isQueued  Boolean  @default(false)
+  sentAt    DateTime?
+  failCount Int      @default(0)
 }
+
+
+
 
 model Block {
   id        String   @id @default(cuid())
