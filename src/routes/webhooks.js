@@ -14,6 +14,10 @@ webhooks.use('/sms-forward',
 webhooks.get('/sms-forward', (req, res) => {
   res.send('Webhook is up. Use POST with JSON or form fields: {from, body, timestamp}.');
 });
+// simple reachability check
+webhooks.get('/ping', (req, res) => {
+  res.json({ ok: true, ts: Date.now() });
+});
 
 webhooks.post('/sms-forward', async (req, res) => {
   try {
