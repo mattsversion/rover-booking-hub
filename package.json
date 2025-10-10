@@ -8,7 +8,8 @@
     "start": "node src/server.js",
     "generate": "prisma generate",
     "migrate": "prisma migrate dev --name init",
-    "test": "node tests/run.js"
+    "test": "node tests/run.js",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^5.17.0",
