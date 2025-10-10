@@ -48,27 +48,40 @@ api.post('/rover/import/:id', async (req, res) => {
   }
 });
 
-// Import ONE pet directly from a Rover dog profile URL
-api.post('/rover/import-by-url/:id', async (req, res) => {
-  const b = await prisma.booking.findUnique({ where: { id: req.params.id }});
-  if (!b) return res.status(404).json({ error: 'Not found' });
 
-  const { url } = req.body || {};
-  if (!url || !/^https?:\/\/(www\.)?rover\.com\/.+\/dogs\//i.test(url)) {
-    return res.status(400).json({ error: 'Provide a valid Rover dog profile URL' });
-  }
 
+// Import a single pet from a public Rover dog profile URL
+api.post('/rover/import-url/:id', async (req, res) => {
   try {
-    const pet = await fetchPetFromProfileUrl(url);
-    if (!pet) return res.status(404).json({ error: 'Could not read pet profile' });
+    const b = await prisma.booking.findUnique({ where: { id: req.params.id }});
+    if (!b) return res.status(404).json({ error: 'Not found' });
 
-    const saved = await prisma.pet.create({ data: { bookingId: b.id, ...pet }});
-    res.json({ ok: true, pet: saved });
+    const { url } = req.body || {};
+    if (!url || !/^https?:\/\//i.test(url)) {
+      return res.status(400).json({ error: 'Please provide a valid Rover dog profile URL.' });
+    }
+
+    // pull one pet from that page (no login required)
+    const pet = await (await import('../services/rover.js')).fetchPetFromProfileUrl(url);
+    if (!pet) return res.status(404).json({ error: 'Could not read a pet from that URL.' });
+
+    // Upsert strategy: append as a new pet (you can change to replace if you prefer)
+    const created = await prisma.pet.create({
+      data: { bookingId: b.id, ...pet }
+    });
+
+    const updated = await prisma.booking.findUnique({
+      where: { id: b.id },
+      include: { pets: true }
+    });
+
+    res.json({ ok: true, added: created, pets: updated.pets });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'Rover import failed' });
+    res.status(500).json({ error: 'Import by URL failed' });
   }
 });
+
 
 /* -------- Actions: confirm/decline -------- */
 api.post('/actions/confirm/:id', async (req, res) => {
