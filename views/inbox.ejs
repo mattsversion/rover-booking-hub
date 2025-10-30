@@ -6,7 +6,9 @@
     <a class="tag <%= tab==='pending' ? 'primary' : 'ghost' %>" href="/?tab=pending">Pending (<%= counts.pending %>)</a>
     <a class="tag <%= tab==='booked' ? 'primary' : 'ghost' %>" href="/?tab=booked">Booked (<%= counts.booked %>)</a>
   </div>
-  <div style="margin-left:auto;">
+  <div style="margin-left:auto; display:flex; gap:8px;">
+    <a class="tag" href="/exports/confirmed" target="_blank">Preview Confirmed</a>
+    <a class="tag success" href="/exports/confirmed.pdf" target="_blank">🖨️ Print Confirmed PDF</a>
     <a class="tag success" href="/bookings/new">+ New booking</a>
   </div>
 </div>

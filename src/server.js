@@ -9,6 +9,7 @@ import { prisma } from './db.js';
 import { api } from './routes/api.js';
 import expressLayouts from 'express-ejs-layouts';
 import { webhooks } from './routes/webhooks.js';
+import puppeteer from 'puppeteer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,7 +54,7 @@ app.post('/do-login', (req, res) => {
   res.render('login', { error:'Wrong Password' });
 });
 
-/** HOME: tabbed Unread / Pending / Booked */
+/** HOME with tabs */
 app.get('/', async (req, res) => {
   const tab = (req.query.tab || 'unread').toLowerCase();
 
@@ -82,7 +83,7 @@ app.get('/', async (req, res) => {
   });
 });
 
-/** BOOKING DETAIL: mark inbound messages as read when opened */
+/** BOOKING DETAIL: mark inbound as read */
 app.get('/booking/:id', async (req, res) => {
   const booking = await prisma.booking.findUnique({
     where: { id: req.params.id },
@@ -99,18 +100,11 @@ app.get('/booking/:id', async (req, res) => {
 });
 
 /** ===== Manual Booking ===== */
-/** New booking form */
-app.get('/bookings/new', (_req, res) => {
-  res.render('new-booking');
-});
-
-/** Create booking */
+app.get('/bookings/new', (_req, res) => res.render('new-booking'));
 app.post('/bookings', async (req, res) => {
   try {
     const { clientName, clientPhone, roverRelay, clientEmail, serviceType, dogsCount, startAt, endAt, notes } = req.body;
-    if (!clientName || !startAt || !endAt) {
-      return res.status(400).send('clientName, startAt, and endAt are required');
-    }
+    if (!clientName || !startAt || !endAt) return res.status(400).send('clientName, startAt, endAt required');
     const start = new Date(startAt);
     const end   = new Date(endAt);
     if (isNaN(start) || isNaN(end)) return res.status(400).send('Invalid dates');
@@ -137,10 +131,59 @@ app.post('/bookings', async (req, res) => {
   }
 });
 
+/** ===== Export: Confirmed Bookings -> PDF ===== */
+/** HTML preview */
+app.get('/exports/confirmed', async (_req, res) => {
+  const bookings = await prisma.booking.findMany({
+    where: { status: 'CONFIRMED' },
+    orderBy: [{ startAt: 'asc' }, { clientName: 'asc' }],
+    include: { pets: true }
+  });
+  res.render('export-confirmed', { bookings, generatedAt: new Date() , layout: false });
+});
+
+/** Direct PDF */
+app.get('/exports/confirmed.pdf', async (_req, res) => {
+  try {
+    const bookings = await prisma.booking.findMany({
+      where: { status: 'CONFIRMED' },
+      orderBy: [{ startAt: 'asc' }, { clientName: 'asc' }],
+      include: { pets: true }
+    });
+
+    // Render HTML via EJS (without layout)
+    const html = await new Promise((resolve, reject) => {
+      // eslint-disable-next-line no-undef
+      res.app.render('export-confirmed', { bookings, generatedAt: new Date(), layout: false }, (err, out) => {
+        if (err) reject(err); else resolve(out);
+      });
+    });
+
+    const browser = await puppeteer.launch({
+      args: ['--no-sandbox','--disable-setuid-sandbox'],
+      headless: 'new'
+    });
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    await page.emulateMediaType('screen');
+    const pdf = await page.pdf({
+      format: 'Letter',
+      printBackground: true,
+      margin: { top: '14mm', right: '14mm', bottom: '16mm', left: '14mm' }
+    });
+    await browser.close();
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="confirmed-bookings.pdf"`);
+    res.send(pdf);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('PDF export failed');
+  }
+});
+
 const port = process.env.PORT || 3000;
-app.listen(port, '0.0.0.0', () =>
-  console.log(`Listening on http://localhost:${port}`)
-);
+app.listen(port, '0.0.0.0', () => console.log(`Listening on http://localhost:${port}`));
 
 /* ===== OAuth (Calendar) ===== */
 app.get('/api/auth/google/start', (_req, res) => {
