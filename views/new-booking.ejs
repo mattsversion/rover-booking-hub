@@ -1,0 +1,13 @@
+<h2>Create Manual Booking</h2>
+<form method="POST" action="/api/bookings">
+  <div class="row" style="gap:8px;flex-wrap:wrap;">
+    <input name="clientName" placeholder="Client Name" required>
+    <input name="clientPhone" placeholder="Phone">
+    <input name="serviceType" placeholder="Service Type" required>
+    <input type="datetime-local" name="startAt" required>
+    <input type="datetime-local" name="endAt" required>
+  </div>
+  <textarea name="notes" placeholder="Notes" style="width:100%;margin-top:8px;"></textarea>
+  <button style="margin-top:8px;">Create Booking</button>
+</form>
+<a href="/" class="ghost">Back</a>

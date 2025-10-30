@@ -159,10 +159,15 @@ app.get('/exports/confirmed.pdf', async (_req, res) => {
       });
     });
 
-    const browser = await puppeteer.launch({
-      args: ['--no-sandbox','--disable-setuid-sandbox'],
-      headless: 'new'
-    });
+// ...top of file already has: import puppeteer from 'puppeteer';
+
+// inside the /exports/confirmed.pdf handler, replace the launch section with:
+const browser = await puppeteer.launch({
+  headless: 'new',
+  args: ['--no-sandbox','--disable-setuid-sandbox'],
+  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || (await puppeteer.executablePath())
+});
+
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'networkidle0' });
     await page.emulateMediaType('screen');

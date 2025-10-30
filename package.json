@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "prisma:generate": "npx prisma generate"
+    "prisma:generate": "npx prisma generate",
+    "postinstall": "npx puppeteer browsers install chrome --path=/opt/render/.cache/puppeteer"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
