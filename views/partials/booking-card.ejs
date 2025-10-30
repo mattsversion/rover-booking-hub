@@ -1,0 +1,22 @@
+<a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
+  <div style="flex:1;">
+    <div style="font-weight:700;"><%= b.clientName %></div>
+    <div class="muted" style="font-size:12px;"><%= b.clientPhone || b.roverRelay || '—' %></div>
+    <div class="muted"><b>Service:</b> <%= b.serviceType %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
+    <div class="muted"><%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %></div>
+    <% if (b.messages && b.messages.length) { 
+         const last = b.messages[0]; %>
+      <div class="muted" style="margin-top:4px;">
+        last: <%= last.direction %> • <%= new Date(last.createdAt).toLocaleString() %>
+      </div>
+      <% if (last.body) { %>
+        <div style="margin-top:2px;"><%= last.body.slice(0,160) %></div>
+      <% } %>
+    <% } %>
+  </div>
+  <% if ((b.messages||[]).some(m => m.direction==='IN' && m.isRead===false)) { %>
+    <span style="background:#e74c3c;color:#fff;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700;align-self:flex-start;">
+      NEW
+    </span>
+  <% } %>
+</a>
