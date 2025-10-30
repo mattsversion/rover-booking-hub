@@ -3,11 +3,12 @@ import express from 'express';
 import { prisma } from '../db.js';
 import { createOrUpdateBusyEvent, deleteBusyEvent, listBusy } from '../services/calendar.js';
 import { dogsInWindow } from '../services/capacity.js';
-import { fetchPetsFromRover, fetchPetFromProfileUrl } from '../services/rover.js';
+// If you need these later, they stay imported:
+import { fetchPetsFromRover } from '../services/rover.js';
 
 export const api = express.Router();
 
-/* -------- Bookings basic -------- */
+/* ---------------- Bookings basic ---------------- */
 api.get('/bookings', async (_req, res) => {
   const data = await prisma.booking.findMany({
     orderBy: { createdAt: 'desc' },
@@ -25,32 +26,67 @@ api.get('/bookings/:id', async (req, res) => {
   res.json(b);
 });
 
-/* -------- Rover imports -------- */
-// Import pet info by searching Rover conversation/request
-api.post('/rover/import/:id', async (req, res) => {
-  const b = await prisma.booking.findUnique({ where: { id: req.params.id }});
-  if (!b) return res.status(404).json({ error: 'Not found' });
-
-  const hint = { externalId: b.externalId || undefined, relay: b.roverRelay || b.clientPhone || undefined };
-
+/* ---------------- Manual create (NEW) ---------------- */
+api.post('/bookings', async (req, res) => {
   try {
-    const pets = await fetchPetsFromRover(hint);
-    if (!pets?.length) return res.status(404).json({ error: 'No pets found on Rover page' });
+    const {
+      clientName,
+      clientPhone,
+      roverRelay,
+      clientEmail,
+      serviceType,
+      dogsCount,
+      startAt,
+      endAt,
+      notes,
+      status
+    } = req.body || {};
 
-    await prisma.pet.deleteMany({ where: { bookingId: b.id }});
-    for (const p of pets) await prisma.pet.create({ data: { bookingId: b.id, ...p }});
+    // required
+    if (!clientName || !startAt || !endAt) {
+      return res.status(400).json({ error: 'clientName, startAt, endAt are required' });
+    }
 
-    const updated = await prisma.booking.findUnique({ where: { id: b.id }, include: { pets: true }});
-    res.json({ ok: true, pets: updated.pets });
+    // coerce
+    const start = new Date(startAt);
+    const end   = new Date(endAt);
+    if (isNaN(start) || isNaN(end)) {
+      return res.status(400).json({ error: 'Invalid dates' });
+    }
+
+    const dogs = Number(dogsCount);
+    const dogsSafe = Number.isFinite(dogs) && dogs > 0 ? dogs : 1;
+
+    const created = await prisma.booking.create({
+      data: {
+        source: 'Manual',
+        clientName: String(clientName).trim(),
+        clientPhone: clientPhone ? String(clientPhone).trim() : null,
+        roverRelay: roverRelay ? String(roverRelay).trim() : null,
+        clientEmail: clientEmail ? String(clientEmail).trim() : null,
+        serviceType: (serviceType && String(serviceType).trim()) || 'Unspecified',
+        dogsCount: dogsSafe,
+        startAt: start,
+        endAt: end,
+        status: (status && String(status).toUpperCase()) === 'CONFIRMED' ? 'CONFIRMED' : 'PENDING',
+        notes: notes ? String(notes) : null
+      }
+    });
+
+    // If HTML form: redirect to detail. If JSON: respond JSON.
+    const wantsHTML = (req.headers.accept || '').includes('text/html');
+    if (wantsHTML || req.headers['content-type']?.includes('application/x-www-form-urlencoded')) {
+      return res.redirect(`/booking/${created.id}`);
+    }
+    return res.json({ ok: true, id: created.id });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'Rover import failed' });
+    return res.status(500).json({ error: 'Failed to create booking' });
   }
 });
 
-
-
-// Import a single pet from a public Rover dog profile URL
+/* ---------------- Rover imports ---------------- */
+// (kept the URL import only, since it’s what you use now)
 api.post('/rover/import-url/:id', async (req, res) => {
   try {
     const b = await prisma.booking.findUnique({ where: { id: req.params.id }});
@@ -61,18 +97,12 @@ api.post('/rover/import-url/:id', async (req, res) => {
       return res.status(400).json({ error: 'Please provide a valid Rover dog profile URL.' });
     }
 
-    // pull one pet from that page (no login required)
     const pet = await (await import('../services/rover.js')).fetchPetFromProfileUrl(url);
     if (!pet) return res.status(404).json({ error: 'Could not read a pet from that URL.' });
 
-    // Upsert strategy: append as a new pet (you can change to replace if you prefer)
-    const created = await prisma.pet.create({
-      data: { bookingId: b.id, ...pet }
-    });
-
+    const created = await prisma.pet.create({ data: { bookingId: b.id, ...pet } });
     const updated = await prisma.booking.findUnique({
-      where: { id: b.id },
-      include: { pets: true }
+      where: { id: b.id }, include: { pets: true }
     });
 
     res.json({ ok: true, added: created, pets: updated.pets });
@@ -82,8 +112,7 @@ api.post('/rover/import-url/:id', async (req, res) => {
   }
 });
 
-
-/* -------- Actions: confirm/decline -------- */
+/* ---------------- Actions: confirm/decline ---------------- */
 api.post('/actions/confirm/:id', async (req, res) => {
   const b = await prisma.booking.findUnique({ where: { id: req.params.id }});
   if (!b) return res.status(404).json({ error: 'Not found' });
@@ -108,7 +137,7 @@ api.post('/actions/decline/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-/* -------- Pets create/update -------- */
+/* ---------------- Pets create/update ---------------- */
 api.post('/bookings/:id/pets', async (req, res) => {
   const booking = await prisma.booking.findUnique({ where: { id: req.params.id }});
   if (!booking) return res.status(404).json({ error: 'Not found' });
@@ -119,43 +148,39 @@ api.post('/bookings/:id/pets', async (req, res) => {
   if (petId) {
     pet = await prisma.pet.update({
       where: { id: petId },
-      data: { name, breed, ageYears: numOrNull(ageYears), weightLbs: numOrNull(weightLbs), instructions, photoUrl }
+      data: {
+        name,
+        breed,
+        ageYears: numOrNull(ageYears),
+        weightLbs: numOrNull(weightLbs),
+        instructions,
+        photoUrl
+      }
     });
   } else {
     pet = await prisma.pet.create({
       data: {
         bookingId: booking.id,
         name: name || 'Dog',
-        breed, ageYears: numOrNull(ageYears),
+        breed,
+        ageYears: numOrNull(ageYears),
         weightLbs: numOrNull(weightLbs),
-        instructions, photoUrl
+        instructions,
+        photoUrl
       }
     });
   }
-  res.json({ ok:true, pet });
+  res.json({ ok: true, pet });
 });
 function numOrNull(v){ const n = Number(v); return Number.isFinite(n) ? n : null; }
 
-// ---- OUTBOUND REPLY: enqueue a message to send via Tasker ----
-api.post('/bookings/:id/reply', async (_req, res) => {
-  return res.status(403).json({ error: 'two_way_disabled' });
-});
+/* ---------------- Two-way SMS (disabled) ---------------- */
+api.post('/bookings/:id/reply', async (_req, res) => res.status(403).json({ error: 'two_way_disabled' }));
+api.get('/outbox/next',        async (_req, res) => res.status(403).json({ error: 'two_way_disabled' }));
+api.get('/outbox/ack',         async (_req, res) => res.status(410).send('two_way_disabled'));
+api.post('/outbox/ack',        async (_req, res) => res.status(410).json({ error: 'two_way_disabled' }));
 
-// ---- TASKER POLL: fetch next queued message ----
-api.get('/outbox/next', async (_req, res) => {
-  return res.status(403).json({ error: 'two_way_disabled' });
-});
-
-// ---- TASKER ACK: mark sent (or failed) ----
-api.get('/outbox/ack', async (_req, res) => {
-  return res.status(410).send('two_way_disabled');
-});
-api.post('/outbox/ack', async (_req, res) => {
-  return res.status(410).json({ error: 'two_way_disabled' });
-});
-
-
-/* -------- Templates (cancel policy, etc.) -------- */
+/* ---------------- Templates ---------------- */
 api.get('/templates/:kind/:id', async (req, res) => {
   const b = await prisma.booking.findUnique({ where: { id: req.params.id }, include: { pets: true }});
   if (!b) return res.status(404).json({ error: 'Not found' });
@@ -197,7 +222,7 @@ function formatRange(startAt, endAt){
   return `${s.toLocaleString()} – ${e.toLocaleString()}`;
 }
 
-/* -------- Edit / availability -------- */
+/* ---------------- Edit / availability ---------------- */
 api.patch('/bookings/:id', async (req, res) => {
   const { startAt, endAt, serviceType, dogsCount, notes } = req.body;
   const updated = await prisma.booking.update({
@@ -215,7 +240,7 @@ api.patch('/bookings/:id', async (req, res) => {
 
 api.get('/availability', async (req, res) => {
   const { start, end } = req.query;
-  if(!start || !end) return res.status(400).json({ error: 'start and end are required (ISO or ms)' });
+  if (!start || !end) return res.status(400).json({ error: 'start and end are required (ISO or ms)' });
 
   const startAt = new Date(start);
   const endAt   = new Date(end);
@@ -235,4 +260,3 @@ api.get('/availability', async (req, res) => {
     calendarConnected
   });
 });
-
