@@ -51,8 +51,7 @@ model Message {
   sentAt    DateTime?
   failCount Int      @default(0)
 
-  // make eid OPTIONAL for the first migration, so it can be added to existing rows
-  eid                   String  @unique
+  eid                   String   @unique
   platform              String?
   threadId              String?
   providerMessageId     String?
@@ -61,9 +60,12 @@ model Message {
   extractedKeywordsJson String?
   extractedDatesJson    String?
 
-  // add a default so SQLite can add this column on a non-empty table
+  // NEW: mark inbound messages as read after opening booking
+  isRead     Boolean  @default(false)
+
   updatedAt DateTime @default(now()) @updatedAt
 }
+
 
 
 

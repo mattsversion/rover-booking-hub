@@ -1,4 +1,5 @@
 <h2 style="margin-top:0;"><%= booking.clientName %></h2>
+<div class="muted" style="margin-top:-6px;"><%= booking.clientPhone || booking.roverRelay || '' %></div>
 <div class="muted">
   <b>Status:</b> <%= booking.status %> •
   <b>Service:</b> <%= booking.serviceType %> •
@@ -29,7 +30,6 @@
     <input id="rover-url" placeholder="Paste Rover dog profile URL (https://www.rover.com/members/.../dogs/XXXX/)" style="flex:1;">
     <button type="button" class="ghost" onclick="importFromRoverUrl()">Import From URL</button>
   </div>
-
 
   <!-- Existing pets -->
   <div id="pets">
@@ -95,9 +95,6 @@
   <% }) %>
 </ul>
 
-
-
-
 <script>
 async function doAction(e, kind){
   e.preventDefault();
@@ -126,20 +123,6 @@ async function importFromRoverUrl(){
   const data = await res.json();
   if(!res.ok){ alert(data.error || 'Import failed'); return; }
   alert(`Imported 1 pet from Rover.`);
-  location.reload();
-}
-
-async function importFromRoverUrl(){
-  const url = document.getElementById('roverUrl').value.trim();
-  if(!url){ alert('Paste a Rover dog profile URL first.'); return; }
-  const res = await fetch('/api/rover/import-by-url/<%= booking.id %>', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ url })
-  });
-  const data = await res.json();
-  if(!res.ok){ alert(data.error || 'Import failed'); return; }
-  alert(`Imported ${data.pet.name || 'dog'}.`);
   location.reload();
 }
 

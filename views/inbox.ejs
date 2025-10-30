@@ -1,21 +1,67 @@
-
 <h2 style="margin-top:0;">Inbox</h2>
+
+<!-- ===== UNREAD ===== -->
+<h3>Unread</h3>
 <div class="list">
-  <% if (!bookings.length) { %>
-    <div class="card">No bookings yet. Send a test SMS to your Samsung number.</div>
+  <% if (!unread.length) { %>
+    <div class="muted">No unread conversations.</div>
   <% } %>
-  <% bookings.forEach(b => { %>
-    <div class="card">
-      <div class="row">
-        <div>
-          <div><b><%= b.clientName %></b></div>
-          <div class="muted"><%= b.serviceType %> • <%= b.status %></div>
-        </div>
-        <a href="/booking/<%= b.id %>">Open</a>
+  <% unread.forEach(b => { const last=b.messages?.[0]; %>
+    <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
+      <div style="flex:1;">
+        <div style="font-weight:600;"><%= b.clientName %></div>
+        <div class="muted" style="font-size:12px;"><%= b.clientPhone || b.roverRelay || '—' %></div>
+        <div class="muted"><b>Service:</b> <%= b.serviceType %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
+        <div class="muted"><%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %></div>
+        <% if (last) { %>
+          <div class="muted" style="margin-top:4px;">last: <%= last.direction %> • <%= new Date(last.createdAt).toLocaleString() %></div>
+        <% } %>
+        <% if (last?.body) { %>
+          <div style="margin-top:4px;"><%= last.body.slice(0,160) %></div>
+        <% } %>
       </div>
-      <div class="muted">
-        <%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %>
+      <div class="tag danger">NEW</div>
+    </a>
+  <% }) %>
+</div>
+
+<!-- ===== PENDING ===== -->
+<h3 style="margin-top:16px;">Pending</h3>
+<div class="list">
+  <% if (!pending.length) { %>
+    <div class="muted">Nothing pending.</div>
+  <% } %>
+  <% pending.forEach(b => { const last=b.messages?.[0]; %>
+    <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
+      <div style="flex:1;">
+        <div style="font-weight:600;"><%= b.clientName %></div>
+        <div class="muted" style="font-size:12px;"><%= b.clientPhone || b.roverRelay || '—' %></div>
+        <div class="muted"><b>Service:</b> <%= b.serviceType %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
+        <div class="muted"><%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %></div>
+        <% if (last) { %>
+          <div class="muted" style="margin-top:4px;">last: <%= last.direction %> • <%= new Date(last.createdAt).toLocaleString() %></div>
+        <% } %>
       </div>
-    </div>
+      <div class="tag">PENDING</div>
+    </a>
+  <% }) %>
+</div>
+
+<!-- ===== BOOKED ===== -->
+<h3 style="margin-top:16px;">Booked</h3>
+<div class="list">
+  <% if (!booked.length) { %>
+    <div class="muted">No upcoming bookings.</div>
+  <% } %>
+  <% booked.forEach(b => { %>
+    <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
+      <div style="flex:1;">
+        <div style="font-weight:600;"><%= b.clientName %></div>
+        <div class="muted" style="font-size:12px;"><%= b.clientPhone || b.roverRelay || '—' %></div>
+        <div class="muted"><b>Service:</b> <%= b.serviceType %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
+        <div class="muted"><%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %></div>
+      </div>
+      <div class="tag success">BOOKED</div>
+    </a>
   <% }) %>
 </div>
