@@ -95,35 +95,7 @@
   <% }) %>
 </ul>
 
-<h3>Reply</h3>
-<form id="reply-form" onsubmit="return sendReply(event)" class="card" style="margin-bottom:12px;">
-  <textarea name="text" rows="3" placeholder="Type a text reply…" style="width:100%;"></textarea>
-  <div class="actions" style="margin-top:8px;">
-    <button>Send SMS</button>
-    <span class="muted">Will send to: <%= booking.clientPhone || booking.roverRelay || '—' %></span>
-  </div>
-</form>
 
-<script>
-async function sendReply(e){
-  e.preventDefault();
-  const fd = new FormData(e.target);
-  const text = String(fd.get('text') || '').trim();
-  if(!text){ alert('Type a message first'); return false; }
-
-  const res = await fetch('/api/bookings/<%= booking.id %>/reply', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ text })
-  });
-  const data = await res.json();
-  if(!res.ok){ alert(data.error || 'Failed'); return false; }
-  alert('Queued to send via phone.');
-  e.target.reset();
-  location.reload();
-  return false;
-}
-</script>
 
 
 <script>

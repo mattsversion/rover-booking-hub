@@ -3,14 +3,14 @@
   "version": "1.0.0",
   "type": "module",
   "main": "src/server.js",
-"scripts": {
-  "start": "node src/server.js",
-  "dev": "nodemon src/server.js",
-  "prisma:generate": "npx prisma generate"
-},
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "prisma:generate": "npx prisma generate"
+  },
   "dependencies": {
     "@prisma/client": "^5.22.0",
-    "prisma": "^5.22.0",
+    "chrono-node": "^2.9.0",
     "cookie-parser": "^1.4.6",
     "dayjs": "^1.11.11",
     "dotenv": "^16.4.5",
@@ -21,6 +21,7 @@
     "js-yaml": "^4.1.0",
     "morgan": "^1.10.0",
     "node-cron": "^3.0.3",
+    "prisma": "^5.22.0",
     "puppeteer": "^23",
     "puppeteer-extra": "^3",
     "puppeteer-extra-plugin-stealth": "^2"

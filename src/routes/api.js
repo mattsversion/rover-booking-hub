@@ -137,79 +137,21 @@ api.post('/bookings/:id/pets', async (req, res) => {
 function numOrNull(v){ const n = Number(v); return Number.isFinite(n) ? n : null; }
 
 // ---- OUTBOUND REPLY: enqueue a message to send via Tasker ----
-api.post('/bookings/:id/reply', async (req, res) => {
-  const b = await prisma.booking.findUnique({ where: { id: req.params.id }});
-  if (!b) return res.status(404).json({ error: 'Booking not found' });
-
-  const { text } = req.body || {};
-  if (!text || !text.trim()) return res.status(400).json({ error: 'Reply text required' });
-
-  // choose destination: prefer clientPhone; else roverRelay
-  const to = b.clientPhone || b.roverRelay;
-  if (!to) return res.status(400).json({ error: 'No phone on this booking' });
-
-  const msg = await prisma.message.create({
-    data: {
-      bookingId: b.id,
-      direction: 'OUT',
-      channel: 'SMS',
-      toLabel: b.clientName,
-      toPhone: to,
-      body: text.trim(),
-      isQueued: true
-    }
-  });
-
-  res.json({ ok: true, queuedId: msg.id, to });
+api.post('/bookings/:id/reply', async (_req, res) => {
+  return res.status(403).json({ error: 'two_way_disabled' });
 });
 
 // ---- TASKER POLL: fetch next queued message ----
-api.get('/outbox/next', async (req, res) => {
-  if (req.query.token !== process.env.SMS_OUTBOX_TOKEN) {
-    return res.status(401).json({ error: 'bad token' });
-  }
-  const msg = await prisma.message.findFirst({
-    where: {
-      direction: 'OUT',
-      channel: 'SMS',
-      isQueued: true,
-      sentAt: null
-    },
-    orderBy: { createdAt: 'asc' },
-    include: { booking: true }
-  });
-  if (!msg) return res.json({ ok: false, none: true });
-
-  res.json({
-    ok: true,
-    id: msg.id,
-    to: msg.toPhone,
-    body: msg.body,
-    bookingId: msg.bookingId,
-    clientName: msg.booking?.clientName || msg.toLabel
-  });
+api.get('/outbox/next', async (_req, res) => {
+  return res.status(403).json({ error: 'two_way_disabled' });
 });
 
 // ---- TASKER ACK: mark sent (or failed) ----
-api.post('/outbox/ack', async (req, res) => {
-  if (req.query.token !== process.env.SMS_OUTBOX_TOKEN) {
-    return res.status(401).json({ error: 'bad token' });
-  }
-  const { id, success } = req.body || {};
-  if (!id) return res.status(400).json({ error: 'id required' });
-
-  if (success) {
-    await prisma.message.update({
-      where: { id },
-      data: { isQueued: false, sentAt: new Date() }
-    });
-  } else {
-    await prisma.message.update({
-      where: { id },
-      data: { failCount: { increment: 1 } }
-    });
-  }
-  res.json({ ok: true });
+api.get('/outbox/ack', async (_req, res) => {
+  return res.status(410).send('two_way_disabled');
+});
+api.post('/outbox/ack', async (_req, res) => {
+  return res.status(410).json({ error: 'two_way_disabled' });
 });
 
 

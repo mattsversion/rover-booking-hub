@@ -38,19 +38,33 @@ model Message {
   id        String   @id @default(cuid())
   bookingId String?
   booking   Booking? @relation(fields: [bookingId], references: [id])
-  // enums replaced with String:
+
+  // existing
   direction String
   channel   String
   fromLabel String?
   toLabel   String?
   body      String
   createdAt DateTime @default(now())
-    // ⭐ NEW fields for outbound queue
-  toPhone   String?      // where to send
+
+  // queue fields (existing)
+  toPhone   String?
   isQueued  Boolean  @default(false)
   sentAt    DateTime?
   failCount Int      @default(0)
+
+  // ⭐ NEW (for dedupe + filtering)
+  eid                String   @unique
+  platform           String?  // 'sms'
+  threadId           String?  // phone number / convo key
+  providerMessageId  String?
+  fromPhone          String?
+  isBookingCandidate Boolean  @default(false)
+  extracted          Json?    // { keywords: string[], dates: {start,end,text}[] }
+
+  updatedAt DateTime @updatedAt
 }
+
 
 
 

@@ -1,23 +1,54 @@
-// src/routes/webhooks.js
 import express from 'express';
 import { prisma } from '../db.js';
+import chrono from 'chrono-node';
+import { buildEID } from '../services/utils/eid.js';
 
 export const webhooks = express.Router();
 
-// Accept urlencoded (form) and raw text on this path:
 webhooks.use('/sms-forward',
   express.urlencoded({ extended: true }),
-  express.text({ type: '*/*' }) // when Tasker sends raw text without a header
+  express.text({ type: '*/*' })
 );
 
-// Optional GET helper
-webhooks.get('/sms-forward', (req, res) => {
+webhooks.get('/sms-forward', (_req, res) => {
   res.send('Webhook is up. Use POST with JSON or form fields: {from, body, timestamp}.');
 });
-// simple reachability check
-webhooks.get('/ping', (req, res) => {
+
+webhooks.get('/ping', (_req, res) => {
   res.json({ ok: true, ts: Date.now() });
 });
+
+const KEYWORDS = [
+  'book','booking','reserve','reservation',
+  'rover','sitter','sitting','board','boarding',
+  'walk','walker','walking',
+  'drop in','drop-in','dropin',
+  'overnight','stay','doggy day care','daycare','day care',
+  'cat sit','dog sit','house sit','housesit'
+];
+
+function findKeywords(text) {
+  const t = (text || '').toLowerCase();
+  const hits = [];
+  for (const k of KEYWORDS) {
+    const re = new RegExp(`\\b${k.replace(/\s+/g, '\\s+')}\\b`, 'i');
+    if (re.test(t)) hits.push(k);
+  }
+  return [...new Set(hits)];
+}
+
+function parseDates(text) {
+  if (!text) return [];
+  const ref = new Date();
+  const results = chrono.parse(text, ref, { forwardDate: true });
+  return results
+    .map(r => ({
+      start: r.start?.date() ?? null,
+      end: r.end?.date() ?? r.start?.date() ?? null,
+      text: r.text
+    }))
+    .filter(d => d.start);
+}
 
 webhooks.post('/sms-forward', async (req, res) => {
   try {
@@ -28,31 +59,33 @@ webhooks.post('/sms-forward', async (req, res) => {
 
     let from, body, timestamp;
 
-    // 1) JSON (if app-wide express.json() parsed it)
     if (req.is('application/json') && req.body && typeof req.body === 'object') {
       ({ from, body, timestamp } = req.body);
-
-    // 2) Raw text that contains JSON
     } else if (typeof req.body === 'string' && req.body.trim().startsWith('{')) {
-      try { ({ from, body, timestamp } = JSON.parse(req.body)); } catch { /* ignore */ }
-
-    // 3) Form fields (application/x-www-form-urlencoded)
+      try { ({ from, body, timestamp } = JSON.parse(req.body)); } catch {}
     } else if (req.body && typeof req.body === 'object') {
       ({ from, body, timestamp } = req.body);
     }
-
-    // 4) Last resort: query params
     if (!from && req.query) {
       from = req.query.from;
       body = req.query.body;
       timestamp = req.query.timestamp;
     }
-
     if (!from || !body) return res.status(400).json({ error: 'Missing fields' });
 
-    console.log('SMS webhook hit:', { from, body, timestamp });
+    const receivedAt = new Date(Number(timestamp) || Date.now());
 
-    const now = new Date(Number(timestamp) || Date.now());
+    // ---- FILTERING ----
+    const keywords = findKeywords(body);
+    const dates = parseDates(body);
+    const isCandidate = (keywords.length > 0) && (dates.length > 0);
+
+    if (!isCandidate) {
+      // silently accept but don't store (you asked to save only booking-like messages)
+      return res.json({ ok: true, skipped: true, reason: 'not_booking_candidate' });
+    }
+
+    // find or create a booking for this sender (last 30 days)
     let booking = await prisma.booking.findFirst({
       where: {
         OR: [{ clientPhone: from }, { roverRelay: from }],
@@ -63,6 +96,10 @@ webhooks.post('/sms-forward', async (req, res) => {
     });
 
     if (!booking) {
+      // If the text has dates, we can seed a 1h placeholder window; you can refine later.
+      const startAt = dates[0]?.start || receivedAt;
+      const endAt = dates[0]?.end || new Date(startAt.getTime() + 60 * 60 * 1000);
+
       booking = await prisma.booking.create({
         data: {
           source: 'SMS',
@@ -70,25 +107,51 @@ webhooks.post('/sms-forward', async (req, res) => {
           clientPhone: from,
           roverRelay: from,
           serviceType: 'Unspecified',
-          startAt: now,
-          endAt: new Date(now.getTime() + 60 * 60 * 1000),
+          startAt,
+          endAt,
           status: 'PENDING',
-          notes: 'Created from SMS (Tasker)'
+          notes: 'Created from SMS (filtered booking candidate)'
         }
       });
     }
 
-    await prisma.message.create({
-      data: {
+    // Build a stable EID to dedupe replays
+    const eid = buildEID({
+      platform: 'sms',
+      threadId: from,
+      providerMessageId: undefined,
+      from,
+      body,
+      timestamp: receivedAt.getTime()
+    });
+
+    // Upsert by EID
+    await prisma.message.upsert({
+      where: { eid },
+      update: {
+        body: String(body).slice(0, 2000),
+        extracted: { keywords, dates },
+        isBookingCandidate: true
+      },
+      create: {
+        eid,
+        platform: 'sms',
+        threadId: from,
+        providerMessageId: null,
+        isBookingCandidate: true,
+        extracted: { keywords, dates },
+
         bookingId: booking.id,
         direction: 'IN',
         channel: 'SMS',
         fromLabel: from,
-        body: String(body).slice(0, 2000)
+        fromPhone: from,
+        body: String(body).slice(0, 2000),
+        // createdAt is auto; receivedAt optional if you added it
       }
     });
 
-    return res.json({ ok: true, bookingId: booking.id });
+    return res.json({ ok: true, bookingId: booking.id, eid });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: 'Server error' });
