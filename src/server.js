@@ -15,6 +15,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 
+async function getExecutablePath() {
+  try {
+    const p = await puppeteer.executablePath();
+    console.log('[puppeteer] resolved executablePath:', p);
+    return p;
+  } catch (e) {
+    console.warn('[puppeteer] executablePath() failed, letting Puppeteer pick default', e?.message);
+    return undefined;
+  }
+}
+
+
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -35,6 +47,16 @@ app.use(expressLayouts);
 app.set('layout', 'layout');
 
 app.use('/public', express.static(path.join(__dirname, '../public')));
+
+app.get('/debug/puppeteer', async (_req, res) => {
+  try {
+    const p = await puppeteer.executablePath();
+    res.json({ ok: true, executablePath: p });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 
 /** simple dashboard auth */
 function requireAuth(req, res, next){
@@ -82,6 +104,8 @@ app.get('/', async (req, res) => {
     unread, pending, booked
   });
 });
+
+
 
 /** BOOKING DETAIL: mark inbound as read */
 app.get('/booking/:id', async (req, res) => {
@@ -162,10 +186,12 @@ app.get('/exports/confirmed.pdf', async (_req, res) => {
 // ...top of file already has: import puppeteer from 'puppeteer';
 
 // inside the /exports/confirmed.pdf handler, replace the launch section with:
+const execPath = await getExecutablePath();
+
 const browser = await puppeteer.launch({
   headless: 'new',
   args: ['--no-sandbox','--disable-setuid-sandbox'],
-  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || (await puppeteer.executablePath())
+  ...(execPath ? { executablePath: execPath } : {})
 });
 
     const page = await browser.newPage();
