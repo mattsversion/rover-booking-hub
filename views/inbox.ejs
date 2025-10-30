@@ -1,67 +1,54 @@
 <h2 style="margin-top:0;">Inbox</h2>
 
-<!-- ===== UNREAD ===== -->
-<h3>Unread</h3>
-<div class="list">
-  <% if (!unread.length) { %>
-    <div class="muted">No unread conversations.</div>
-  <% } %>
-  <% unread.forEach(b => { const last=b.messages?.[0]; %>
-    <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
-      <div style="flex:1;">
-        <div style="font-weight:600;"><%= b.clientName %></div>
-        <div class="muted" style="font-size:12px;"><%= b.clientPhone || b.roverRelay || '—' %></div>
-        <div class="muted"><b>Service:</b> <%= b.serviceType %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
-        <div class="muted"><%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %></div>
-        <% if (last) { %>
-          <div class="muted" style="margin-top:4px;">last: <%= last.direction %> • <%= new Date(last.createdAt).toLocaleString() %></div>
-        <% } %>
-        <% if (last?.body) { %>
-          <div style="margin-top:4px;"><%= last.body.slice(0,160) %></div>
-        <% } %>
-      </div>
-      <div class="tag danger">NEW</div>
-    </a>
-  <% }) %>
+<div class="row" style="gap:8px; align-items:center; margin-bottom:10px;">
+  <div class="tabs" style="display:flex; gap:6px; flex-wrap:wrap;">
+    <a class="tag <%= tab==='unread' ? 'primary' : 'ghost' %>" href="/?tab=unread">Unread (<%= counts.unread %>)</a>
+    <a class="tag <%= tab==='pending' ? 'primary' : 'ghost' %>" href="/?tab=pending">Pending (<%= counts.pending %>)</a>
+    <a class="tag <%= tab==='booked' ? 'primary' : 'ghost' %>" href="/?tab=booked">Booked (<%= counts.booked %>)</a>
+  </div>
+  <div style="margin-left:auto;">
+    <a class="tag success" href="/bookings/new">+ New booking</a>
+  </div>
 </div>
 
-<!-- ===== PENDING ===== -->
-<h3 style="margin-top:16px;">Pending</h3>
-<div class="list">
-  <% if (!pending.length) { %>
-    <div class="muted">Nothing pending.</div>
-  <% } %>
-  <% pending.forEach(b => { const last=b.messages?.[0]; %>
-    <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
-      <div style="flex:1;">
-        <div style="font-weight:600;"><%= b.clientName %></div>
-        <div class="muted" style="font-size:12px;"><%= b.clientPhone || b.roverRelay || '—' %></div>
-        <div class="muted"><b>Service:</b> <%= b.serviceType %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
-        <div class="muted"><%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %></div>
-        <% if (last) { %>
-          <div class="muted" style="margin-top:4px;">last: <%= last.direction %> • <%= new Date(last.createdAt).toLocaleString() %></div>
-        <% } %>
-      </div>
-      <div class="tag">PENDING</div>
-    </a>
-  <% }) %>
-</div>
+<% function card(b){ const last=b.messages?.[0]; %>
+  <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
+    <div style="flex:1;">
+      <div style="font-weight:600;"><%= b.clientName %></div>
+      <div class="muted" style="font-size:12px;"><%= b.clientPhone || b.roverRelay || '—' %></div>
+      <div class="muted"><b>Service:</b> <%= b.serviceType %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
+      <div class="muted"><%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %></div>
+      <% if (last) { %>
+        <div class="muted" style="margin-top:4px;">last: <%= last.direction %> • <%= new Date(last.createdAt).toLocaleString() %></div>
+        <% if (last.body) { %><div style="margin-top:2px;"><%= last.body.slice(0,160) %></div><% } %>
+      <% } %>
+    </div>
+    <% if (b.messages.some(m=>m.direction==='IN' && m.isRead===false)) { %>
+      <div class="tag danger">new</div>
+    <% } %>
+  </a>
+<% } %>
 
-<!-- ===== BOOKED ===== -->
-<h3 style="margin-top:16px;">Booked</h3>
-<div class="list">
-  <% if (!booked.length) { %>
-    <div class="muted">No upcoming bookings.</div>
-  <% } %>
-  <% booked.forEach(b => { %>
-    <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
-      <div style="flex:1;">
-        <div style="font-weight:600;"><%= b.clientName %></div>
-        <div class="muted" style="font-size:12px;"><%= b.clientPhone || b.roverRelay || '—' %></div>
-        <div class="muted"><b>Service:</b> <%= b.serviceType %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
-        <div class="muted"><%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %></div>
-      </div>
-      <div class="tag success">BOOKED</div>
-    </a>
-  <% }) %>
-</div>
+<% if (tab==='unread') { %>
+  <h3>Unread</h3>
+  <div class="list">
+    <% if (!unread.length) { %><div class="muted">No unread conversations.</div><% } %>
+    <% unread.forEach(b => { %><% card(b) %><% }) %>
+  </div>
+<% } %>
+
+<% if (tab==='pending') { %>
+  <h3>Pending</h3>
+  <div class="list">
+    <% if (!pending.length) { %><div class="muted">Nothing pending.</div><% } %>
+    <% pending.forEach(b => { %><% card(b) %><% }) %>
+  </div>
+<% } %>
+
+<% if (tab==='booked') { %>
+  <h3>Booked</h3>
+  <div class="list">
+    <% if (!booked.length) { %><div class="muted">No upcoming bookings.</div><% } %>
+    <% booked.forEach(b => { %><% card(b) %><% }) %>
+  </div>
+<% } %>

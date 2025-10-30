@@ -1,4 +1,3 @@
-// src/server.js
 import 'dotenv/config';
 import express from 'express';
 import morgan from 'morgan';
@@ -32,7 +31,7 @@ app.use('/api', api);
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '../views'));
 app.use(expressLayouts);
-app.set('layout', 'layout'); // views/layout.ejs by default
+app.set('layout', 'layout');
 
 app.use('/public', express.static(path.join(__dirname, '../public')));
 
@@ -54,30 +53,36 @@ app.post('/do-login', (req, res) => {
   res.render('login', { error:'Wrong Password' });
 });
 
-/** HOME: Unread / Pending / Booked */
-app.get('/', async (_req, res) => {
-  const unread = await prisma.booking.findMany({
-    where: { messages: { some: { direction: 'IN', isRead: false } } },
-    orderBy: { createdAt: 'desc' },
-    include: { messages: { orderBy: { createdAt: 'desc' } }, pets: true }
-  });
+/** HOME: tabbed Unread / Pending / Booked */
+app.get('/', async (req, res) => {
+  const tab = (req.query.tab || 'unread').toLowerCase();
 
-  const pending = await prisma.booking.findMany({
-    where: { status: 'PENDING' },
-    orderBy: { createdAt: 'desc' },
-    include: { messages: { orderBy: { createdAt: 'desc' } }, pets: true }
-  });
+  const [unread, pending, booked] = await Promise.all([
+    prisma.booking.findMany({
+      where: { messages: { some: { direction: 'IN', isRead: false } } },
+      orderBy: { createdAt: 'desc' },
+      include: { messages: { orderBy: { createdAt: 'desc' } }, pets: true }
+    }),
+    prisma.booking.findMany({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+      include: { messages: { orderBy: { createdAt: 'desc' } }, pets: true }
+    }),
+    prisma.booking.findMany({
+      where: { status: 'CONFIRMED' },
+      orderBy: { startAt: 'asc' },
+      include: { messages: { orderBy: { createdAt: 'desc' } }, pets: true }
+    })
+  ]);
 
-  const booked = await prisma.booking.findMany({
-    where: { status: 'CONFIRMED' },
-    orderBy: { startAt: 'asc' },
-    include: { messages: { orderBy: { createdAt: 'desc' } }, pets: true }
+  res.render('inbox', {
+    tab,
+    counts: { unread: unread.length, pending: pending.length, booked: booked.length },
+    unread, pending, booked
   });
-
-  res.render('inbox', { unread, pending, booked });
 });
 
-/** BOOKING DETAIL: mark inbound messages as read */
+/** BOOKING DETAIL: mark inbound messages as read when opened */
 app.get('/booking/:id', async (req, res) => {
   const booking = await prisma.booking.findUnique({
     where: { id: req.params.id },
@@ -93,12 +98,51 @@ app.get('/booking/:id', async (req, res) => {
   res.render('booking', { booking });
 });
 
+/** ===== Manual Booking ===== */
+/** New booking form */
+app.get('/bookings/new', (_req, res) => {
+  res.render('new-booking');
+});
+
+/** Create booking */
+app.post('/bookings', async (req, res) => {
+  try {
+    const { clientName, clientPhone, roverRelay, clientEmail, serviceType, dogsCount, startAt, endAt, notes } = req.body;
+    if (!clientName || !startAt || !endAt) {
+      return res.status(400).send('clientName, startAt, and endAt are required');
+    }
+    const start = new Date(startAt);
+    const end   = new Date(endAt);
+    if (isNaN(start) || isNaN(end)) return res.status(400).send('Invalid dates');
+
+    const created = await prisma.booking.create({
+      data: {
+        source: 'Manual',
+        clientName: clientName.trim(),
+        clientPhone: clientPhone?.trim() || null,
+        roverRelay: roverRelay?.trim() || null,
+        clientEmail: clientEmail?.trim() || null,
+        serviceType: serviceType?.trim() || 'Unspecified',
+        dogsCount: dogsCount ? Number(dogsCount) : 1,
+        startAt: start,
+        endAt: end,
+        status: 'PENDING',
+        notes: notes || null
+      }
+    });
+    res.redirect(`/booking/${created.id}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to create booking');
+  }
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, '0.0.0.0', () =>
   console.log(`Listening on http://localhost:${port}`)
 );
 
-// start OAuth
+/* ===== OAuth (Calendar) ===== */
 app.get('/api/auth/google/start', (_req, res) => {
   const o = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
@@ -116,7 +160,6 @@ app.get('/api/auth/google/start', (_req, res) => {
   res.redirect(url);
 });
 
-// callback -> prints refresh token once
 app.get('/api/auth/google/callback', async (req, res) => {
   try {
     const o = new google.auth.OAuth2(

@@ -1,5 +1,11 @@
 <h2 style="margin-top:0;"><%= booking.clientName %></h2>
-<div class="muted" style="margin-top:-6px;"><%= booking.clientPhone || booking.roverRelay || '' %></div>
+<div class="muted" style="margin-top:-6px;display:flex;gap:8px;align-items:center;">
+  <span><%= booking.clientPhone || booking.roverRelay || '' %></span>
+  <% if (booking.clientPhone || booking.roverRelay) { %>
+    <button class="ghost" type="button" onclick="copyNumber('<%= booking.clientPhone || booking.roverRelay %>')">Copy</button>
+  <% } %>
+</div>
+
 <div class="muted">
   <b>Status:</b> <%= booking.status %> •
   <b>Service:</b> <%= booking.serviceType %> •
@@ -95,7 +101,22 @@
   <% }) %>
 </ul>
 
+<!-- ==================== REPLY ==================== -->
+<h3>Reply</h3>
+<form id="reply-form" onsubmit="return sendReply(event)" class="card" style="margin-bottom:12px;">
+  <textarea name="text" rows="3" placeholder="Type a text reply…" style="width:100%;"></textarea>
+  <div class="actions" style="margin-top:8px;">
+    <button>Send SMS</button>
+    <span class="muted">Will send to: <%= booking.clientPhone || booking.roverRelay || '—' %></span>
+  </div>
+</form>
+
 <script>
+function copyNumber(num){
+  if(!num) return;
+  navigator.clipboard.writeText(num).then(()=>alert('Number copied'));
+}
+
 async function doAction(e, kind){
   e.preventDefault();
   const url = kind === 'confirm'
@@ -114,7 +135,6 @@ async function doAction(e, kind){
 async function importFromRoverUrl(){
   const url = document.getElementById('rover-url').value.trim();
   if(!url){ alert('Paste a Rover dog profile URL first.'); return; }
-
   const res = await fetch('/api/rover/import-url/<%= booking.id %>', {
     method:'POST',
     headers:{ 'Content-Type':'application/json' },
@@ -186,6 +206,8 @@ async function checkAvailability(){
   }
 }
 
+// mark-as-read is handled server-side when opening page
+
 // Suspicious banner logic
 (function(){
   const pets = <%- JSON.stringify(booking.pets || []) %>;
@@ -198,4 +220,23 @@ async function checkAvailability(){
   const suspicious = pets.some(p => (!p.photoUrl) && (!p.instructions || !p.instructions.trim()) && (p.breed && popular.has(cap(p.breed))));
   if(suspicious) document.getElementById('suspicious-banner').style.display = 'block';
 })();
+
+async function sendReply(e){
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const text = String(fd.get('text') || '').trim();
+  if(!text){ alert('Type a message first'); return false; }
+
+  const res = await fetch('/api/bookings/<%= booking.id %>/reply', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ text })
+  });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error || 'Failed'); return false; }
+  alert('Queued to send via phone.');
+  e.target.reset();
+  location.reload();
+  return false;
+}
 </script>
