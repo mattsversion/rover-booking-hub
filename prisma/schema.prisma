@@ -39,7 +39,6 @@ model Message {
   bookingId String?
   booking   Booking? @relation(fields: [bookingId], references: [id])
 
-  // existing
   direction String
   channel   String
   fromLabel String?
@@ -47,23 +46,26 @@ model Message {
   body      String
   createdAt DateTime @default(now())
 
-  // queue fields (existing)
   toPhone   String?
   isQueued  Boolean  @default(false)
   sentAt    DateTime?
   failCount Int      @default(0)
 
-  // ⭐ NEW (for dedupe + filtering)
-  eid                String   @unique
-  platform           String?  // 'sms'
-  threadId           String?  // phone number / convo key
-  providerMessageId  String?
-  fromPhone          String?
-  isBookingCandidate Boolean  @default(false)
-  extracted          Json?    // { keywords: string[], dates: {start,end,text}[] }
+  // make eid OPTIONAL for the first migration, so it can be added to existing rows
+  eid                   String  @unique
+  platform              String?
+  threadId              String?
+  providerMessageId     String?
+  fromPhone             String?
+  isBookingCandidate    Boolean  @default(false)
+  extractedKeywordsJson String?
+  extractedDatesJson    String?
 
-  updatedAt DateTime @updatedAt
+  // add a default so SQLite can add this column on a non-empty table
+  updatedAt DateTime @default(now()) @updatedAt
 }
+
+
 
 
 

@@ -1,6 +1,6 @@
 import express from 'express';
 import { prisma } from '../db.js';
-import chrono from 'chrono-node';
+import * as chrono from 'chrono-node';
 import { buildEID } from '../services/utils/eid.js';
 
 export const webhooks = express.Router();
@@ -126,30 +126,41 @@ webhooks.post('/sms-forward', async (req, res) => {
     });
 
     // Upsert by EID
-    await prisma.message.upsert({
-      where: { eid },
-      update: {
-        body: String(body).slice(0, 2000),
-        extracted: { keywords, dates },
-        isBookingCandidate: true
-      },
-      create: {
-        eid,
-        platform: 'sms',
-        threadId: from,
-        providerMessageId: null,
-        isBookingCandidate: true,
-        extracted: { keywords, dates },
+// helpers to serialize
+function datesToSerializable(dates) {
+  return dates.map(d => ({
+    startISO: d.start ? new Date(d.start).toISOString() : null,
+    endISO:   d.end   ? new Date(d.end).toISOString()   : null,
+    text: d.text || ''
+  }));
+}
 
-        bookingId: booking.id,
-        direction: 'IN',
-        channel: 'SMS',
-        fromLabel: from,
-        fromPhone: from,
-        body: String(body).slice(0, 2000),
-        // createdAt is auto; receivedAt optional if you added it
-      }
-    });
+await prisma.message.upsert({
+  where: { eid },
+  update: {
+    body: String(body).slice(0, 2000),
+    isBookingCandidate: true,
+    extractedKeywordsJson: JSON.stringify(keywords),
+    extractedDatesJson: JSON.stringify(datesToSerializable(dates))
+  },
+  create: {
+    eid,
+    platform: 'sms',
+    threadId: from,
+    providerMessageId: null,
+    fromPhone: from,
+    isBookingCandidate: true,
+    extractedKeywordsJson: JSON.stringify(keywords),
+    extractedDatesJson: JSON.stringify(datesToSerializable(dates)),
+
+    bookingId: booking.id,
+    direction: 'IN',
+    channel: 'SMS',
+    fromLabel: from,
+    body: String(body).slice(0, 2000)
+  }
+});
+
 
     return res.json({ ok: true, bookingId: booking.id, eid });
   } catch (e) {

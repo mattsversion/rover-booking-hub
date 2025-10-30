@@ -221,6 +221,8 @@ api.get('/availability', async (req, res) => {
   const endAt   = new Date(end);
 
   const busy = await listBusy(startAt, endAt);
+  const calendarConnected = !!(process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REDIRECT_URI);
+
   const currentDogs = await dogsInWindow(startAt, endAt);
   const capacity = 10;
 
@@ -229,6 +231,8 @@ api.get('/availability', async (req, res) => {
     window: { startAt, endAt },
     busy,
     dogsOverlapping: currentDogs,
-    willExceed: currentDogs >= capacity
+    willExceed: currentDogs >= capacity,
+    calendarConnected
   });
 });
+
