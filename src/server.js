@@ -46,6 +46,15 @@ app.set('views', path.join(__dirname, '../views'));
 app.use(expressLayouts);
 app.set('layout', 'layout');
 
+app.get('/api/notifications/latest', async (_req, res) => {
+  const last = await prisma.message.findFirst({
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, createdAt: true }
+  });
+  res.json(last || {});
+});
+
+
 app.use('/public', express.static(path.join(__dirname, '../public')));
 
 app.get('/debug/puppeteer', async (_req, res) => {
