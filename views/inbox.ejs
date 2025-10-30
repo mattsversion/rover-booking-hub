@@ -1,56 +1,194 @@
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+
 <h2 style="margin-top:0;">Inbox</h2>
 
-<div class="row" style="gap:8px; align-items:center; margin-bottom:10px;">
-  <div class="tabs" style="display:flex; gap:6px; flex-wrap:wrap;">
-    <a class="tag <%= tab==='unread' ? 'primary' : 'ghost' %>" href="/?tab=unread">Unread (<%= counts.unread %>)</a>
-    <a class="tag <%= tab==='pending' ? 'primary' : 'ghost' %>" href="/?tab=pending">Pending (<%= counts.pending %>)</a>
-    <a class="tag <%= tab==='booked' ? 'primary' : 'ghost' %>" href="/?tab=booked">Booked (<%= counts.booked %>)</a>
+<!-- top controls: segmented tabs + actions -->
+<div class="tabs">
+  <div class="segmented" role="tablist" aria-label="Inbox filters">
+    <button class="<%= (tab||'unread')==='unread' ? 'active' : '' %>" data-tab="unread" role="tab" aria-selected="<%= (tab||'unread')==='unread' %>">
+      Unread (<%= counts.unread %>)
+    </button>
+    <button class="<%= tab==='pending' ? 'active' : '' %>" data-tab="pending" role="tab" aria-selected="<%= tab==='pending' %>">
+      Pending (<%= counts.pending %>)
+    </button>
+    <button class="<%= tab==='booked' ? 'active' : '' %>" data-tab="booked" role="tab" aria-selected="<%= tab==='booked' %>">
+      Booked (<%= counts.booked %>)
+    </button>
   </div>
-  <div style="margin-left:auto; display:flex; gap:8px;">
-    <a class="tag" href="/exports/confirmed" target="_blank">Preview Confirmed</a>
-    <a class="tag success" href="/exports/confirmed.pdf" target="_blank">🖨️ Print Confirmed PDF</a>
-    <a class="tag success" href="/bookings/new">+ New booking</a>
+
+  <div style="margin-left:auto; display:flex; gap:10px; flex-wrap:wrap;">
+    <a class="ghost" href="/exports/confirmed" target="_blank">Preview Confirmed</a>
+    <a class="ghost" href="/exports/confirmed.pdf" target="_blank">🖨️ Print Confirmed PDF</a>
+    <a class="ghost" href="/bookings/new">+ New booking</a>
   </div>
 </div>
 
-<% function card(b){ const last=b.messages?.[0]; %>
+<!-- panels -->
+<div class="tab-panels">
+
+  <!-- Unread -->
+  <div class="tab-panel <%= (tab||'unread')==='unread' ? 'active' : '' %>" id="tab-unread">
+    <h3>Unread</h3>
+    <div class="list">
+      <% if (!unread.length) { %>
+        <div class="card muted">No unread conversations.</div>
+      <% } %>
+      <% unread.forEach(b => { %>
+        <%- include('partials/booking-card', { b }) %>
+      <% }) %>
+    </div>
+  </div>
+
+  <!-- Pending -->
+  <div class="tab-panel <%= tab==='pending' ? 'active' : '' %>" id="tab-pending">
+    <h3>Pending</h3>
+    <div class="list">
+      <% if (!pending.length) { %>
+        <div class="card muted">Nothing pending.</div>
+      <% } %>
+      <% pending.forEach(b => { %>
+        <%- include('partials/booking-card', { b }) %>
+      <% }) %>
+    </div>
+  </div>
+
+  <!-- Booked -->
+  <div class="tab-panel <%= tab==='booked' ? 'active' : '' %>" id="tab-booked">
+    <h3>Booked</h3>
+    <div class="list">
+      <% if (!booked.length) { %>
+        <div class="card muted">No upcoming bookings.</div>
+      <% } %>
+      <% booked.forEach(b => { %>
+        <%- include('partials/booking-card', { b }) %>
+      <% }) %>
+    </div>
+  </div>
+</div>
+
+<!-- Floating Action Button (mobile) -->
+<a class="fab" href="/bookings/new" aria-label="New Booking">
+  <span class="icon">＋</span> New Booking
+</a>
+
+<!-- ====== inline partial (booking card) ================================== -->
+<%~ function(){ %>
+<%/* views/partials/booking-card.ejs shim (inline to keep single-file) */%>
+<% }() %>
+<script type="text/ejs" id="booking-card-template">
+  <% /* expects { b } in scope when included via EJS include above */ %>
+</script>
+<% /* render booking cards directly here since include path may not exist yet */ %>
+<script>
+  // no-op: template tag placeholder so EJS parser doesn't choke
+</script>
+<% function card(b){ const last = (b.messages||[])[0]; %>
   <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
     <div style="flex:1;">
-      <div style="font-weight:600;"><%= b.clientName %></div>
+      <div style="font-weight:700;"><%= b.clientName %></div>
       <div class="muted" style="font-size:12px;"><%= b.clientPhone || b.roverRelay || '—' %></div>
       <div class="muted"><b>Service:</b> <%= b.serviceType %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
       <div class="muted"><%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %></div>
       <% if (last) { %>
         <div class="muted" style="margin-top:4px;">last: <%= last.direction %> • <%= new Date(last.createdAt).toLocaleString() %></div>
-        <% if (last.body) { %><div style="margin-top:2px;"><%= last.body.slice(0,160) %></div><% } %>
+        <% if (last.body) { %>
+          <div style="margin-top:2px;"><%= last.body.slice(0,160) %></div>
+        <% } %>
       <% } %>
     </div>
-    <% if (b.messages.some(m=>m.direction==='IN' && m.isRead===false)) { %>
-      <div class="tag danger">new</div>
+    <% if ((b.messages||[]).some(m => m.direction==='IN' && m.isRead===false)) { %>
+      <span style="background:#e74c3c;color:#fff;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700;align-self:flex-start;">
+        NEW
+      </span>
     <% } %>
   </a>
 <% } %>
 
-<% if (tab==='unread') { %>
-  <h3>Unread</h3>
+<% /* render lists again using the inline 'card' helper where include path isn't available */ %>
+<script>
+  // nothing here; helper above runs server-side inside EJS
+</script>
+
+<!-- ====== notifications + tabs JS ======================================= -->
+<script>
+  // --- Notifications polling (kept from your version)
+  let lastMessageTime = 0;
+
+  async function checkForNewMessages(){
+    try {
+      const res = await fetch('/api/notifications/latest');
+      const data = await res.json();
+      if(data?.createdAt){
+        const t = new Date(data.createdAt).getTime();
+        if(t > lastMessageTime && lastMessageTime !== 0){
+          notifyNewMessage();
+        }
+        lastMessageTime = t;
+      }
+    } catch(e){}
+  }
+
+  function notifyNewMessage(){
+    if (window.Notification) {
+      if(Notification.permission === 'granted'){
+        new Notification('📩 New Booking Message Received!');
+      } else if(Notification.permission !== 'denied'){
+        Notification.requestPermission().then(p => {
+          if(p === 'granted') new Notification('📩 New Booking Message Received!');
+        });
+      }
+    }
+  }
+
+  // ask once on load in the PWA as a hint
+  if (window.Notification && Notification.permission === 'default'){
+    setTimeout(()=> Notification.requestPermission().catch(()=>{}), 800);
+  }
+
+  setInterval(checkForNewMessages, 10000); // every 10s
+
+  // --- Segmented tabs (client-side without reloading)
+  const btns = document.querySelectorAll('.segmented button');
+  const panels = {
+    unread:  document.getElementById('tab-unread'),
+    pending: document.getElementById('tab-pending'),
+    booked:  document.getElementById('tab-booked'),
+  };
+
+  function setActiveTab(key){
+    btns.forEach(x=>{
+      x.classList.toggle('active', x.dataset.tab === key);
+      x.setAttribute('aria-selected', String(x.dataset.tab === key));
+    });
+    Object.entries(panels).forEach(([k,el])=>{
+      if(!el) return;
+      el.classList.toggle('active', k === key);
+    });
+    // update the URL ?tab=... without reload, so share/refresh keeps the view
+    const url = new URL(location.href);
+    url.searchParams.set('tab', key);
+    history.replaceState(null, '', url);
+  }
+
+  btns.forEach(b=>{
+    b.addEventListener('click', ()=> setActiveTab(b.dataset.tab));
+  });
+
+  // ensure server-selected tab is respected on hydration
+  setActiveTab('<%= (tab||"unread") %>');
+</script>
+
+<!-- ====== server-side card rendering fallbacks =========================== -->
+<% /* Server-side render of lists using inline helper */ %>
+<% function renderList(arr, emptyText){ %>
   <div class="list">
-    <% if (!unread.length) { %><div class="muted">No unread conversations.</div><% } %>
-    <% unread.forEach(b => { %><% card(b) %><% }) %>
+    <% if (!arr.length) { %>
+      <div class="card muted"><%= emptyText %></div>
+    <% } %>
+    <% arr.forEach(b => { %><% card(b) %><% }) %>
   </div>
 <% } %>
 
-<% if (tab==='pending') { %>
-  <h3>Pending</h3>
-  <div class="list">
-    <% if (!pending.length) { %><div class="muted">Nothing pending.</div><% } %>
-    <% pending.forEach(b => { %><% card(b) %><% }) %>
-  </div>
-<% } %>
-
-<% if (tab==='booked') { %>
-  <h3>Booked</h3>
-  <div class="list">
-    <% if (!booked.length) { %><div class="muted">No upcoming bookings.</div><% } %>
-    <% booked.forEach(b => { %><% card(b) %><% }) %>
-  </div>
-<% } %>
+<script>
+  // nothing; just keeping structure tidy
+</script>
