@@ -9,25 +9,13 @@ import { prisma } from './db.js';
 import { api } from './routes/api.js';
 import expressLayouts from 'express-ejs-layouts';
 import { webhooks } from './routes/webhooks.js';
-import puppeteer from 'puppeteer';
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
-
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 
-async function getExecutablePath() {
-  try {
-    const p = await puppeteer.executablePath();
-    console.log('[puppeteer] resolved executablePath:', p);
-    return p;
-  } catch (e) {
-    console.warn('[puppeteer] executablePath() failed, letting Puppeteer pick default', e?.message);
-    return undefined;
-  }
-}
 
 
 app.use(morgan('dev'));
