@@ -10,6 +10,9 @@ import { api } from './routes/api.js';
 import expressLayouts from 'express-ejs-layouts';
 import { webhooks } from './routes/webhooks.js';
 import puppeteer from 'puppeteer';
+import chromium from '@sparticuz/chromium';
+import puppeteer from 'puppeteer-core';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -176,51 +179,107 @@ app.get('/exports/confirmed', async (_req, res) => {
 });
 
 /** Direct PDF */
+// ========= EXPORT CONFIRMED BOOKINGS AS PDF =========
 app.get('/exports/confirmed.pdf', async (_req, res) => {
   try {
-    const bookings = await prisma.booking.findMany({
-      where: { status: 'CONFIRMED' },
-      orderBy: [{ startAt: 'asc' }, { clientName: 'asc' }],
+    // 1) Pull confirmed, upcoming bookings with pets
+    const confirmed = await prisma.booking.findMany({
+      where: { status: 'CONFIRMED', endAt: { gte: new Date() } },
+      orderBy: { startAt: 'asc' },
       include: { pets: true }
     });
 
-    // Render HTML via EJS (without layout)
-    const html = await new Promise((resolve, reject) => {
-      // eslint-disable-next-line no-undef
-      res.app.render('export-confirmed', { bookings, generatedAt: new Date(), layout: false }, (err, out) => {
-        if (err) reject(err); else resolve(out);
+    // 2) Build minimal HTML with inline styles for print
+    const html = `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Confirmed Bookings</title>
+  <style>
+    @page { size: A4; margin: 16mm; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#111; }
+    h1 { margin: 0 0 12px; font-size: 22px; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 12px; margin: 10px 0; page-break-inside: avoid; }
+    .muted { color:#666; font-size:12px; }
+    .row { display:flex; justify-content:space-between; gap:10px; }
+    .pet { display:inline-block; background:#f5f5ff; border:1px solid #e6e6ff; border-radius:999px; padding:2px 8px; margin-right:6px; font-size:12px; }
+  </style>
+</head>
+<body>
+  <h1>Confirmed Bookings</h1>
+  ${confirmed.map(b => `
+    <div class="card">
+      <div class="row">
+        <div>
+          <div style="font-weight:700;font-size:16px;">${escapeHtml(b.clientName)}</div>
+          <div class="muted">${escapeHtml(b.clientPhone || b.roverRelay || '—')}</div>
+        </div>
+        <div class="muted">${new Date(b.startAt).toLocaleString()} → ${new Date(b.endAt).toLocaleString()}</div>
+      </div>
+      <div class="muted" style="margin-top:6px;">
+        <b>Service:</b> ${escapeHtml(b.serviceType || '—')} •
+        <b>Dogs:</b> ${b.dogsCount || 1}
+      </div>
+      ${b.pets?.length ? `
+        <div style="margin-top:6px;">
+          ${b.pets.map(p => `<span class="pet">${escapeHtml(p.name)}${p.breed ? ' · ' + escapeHtml(p.breed) : ''}</span>`).join('')}
+        </div>
+      ` : ''}
+      ${b.notes ? `<div style="margin-top:6px;">${escapeHtml(b.notes)}</div>` : ''}
+    </div>
+  `).join('')}
+</body>
+</html>
+    `;
+
+    // 3) Launch serverless Chromium (works on Render) and print
+    let browser;
+    try {
+      const executablePath = await chromium.executablePath();
+
+      browser = await puppeteer.launch({
+        args: chromium.args,
+        defaultViewport: chromium.defaultViewport,
+        executablePath,
+        headless: chromium.headless
       });
-    });
 
-// ...top of file already has: import puppeteer from 'puppeteer';
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'networkidle0' });
 
-// inside the /exports/confirmed.pdf handler, replace the launch section with:
-const execPath = await getExecutablePath();
+      const pdf = await page.pdf({
+        printBackground: true,
+        format: 'A4',
+        margin: { top: '16mm', right: '16mm', bottom: '16mm', left: '16mm' }
+      });
 
-const browser = await puppeteer.launch({
-  headless: 'new',
-  args: ['--no-sandbox','--disable-setuid-sandbox'],
-  ...(execPath ? { executablePath: execPath } : {})
-});
-
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    await page.emulateMediaType('screen');
-    const pdf = await page.pdf({
-      format: 'Letter',
-      printBackground: true,
-      margin: { top: '14mm', right: '14mm', bottom: '16mm', left: '14mm' }
-    });
-    await browser.close();
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="confirmed-bookings.pdf"`);
-    res.send(pdf);
+      await browser.close();
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline; filename="confirmed.pdf"');
+      return res.send(pdf);
+    } catch (err) {
+      if (browser) try { await browser.close(); } catch {}
+      // 4) Graceful fallback: send the HTML so you can "Print to PDF" in the browser
+      console.error('PDF export failed, falling back to HTML:', err?.message || err);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(200).send(html);
+    }
   } catch (e) {
     console.error(e);
-    res.status(500).send('PDF export failed');
+    return res.status(500).json({ error: 'export_failed' });
+  }
+
+  function escapeHtml(s=''){
+    return String(s)
+      .replaceAll('&','&amp;')
+      .replaceAll('<','&lt;')
+      .replaceAll('>','&gt;')
+      .replaceAll('"','&quot;')
+      .replaceAll("'",'&#39;');
   }
 });
+
 
 const port = process.env.PORT || 3000;
 app.listen(port, '0.0.0.0', () => console.log(`Listening on http://localhost:${port}`));
