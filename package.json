@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "@sparticuz/chromium": "^131.0.1",
     "chrono-node": "^2.9.0",
     "cookie-parser": "^1.4.6",
     "dayjs": "^1.11.11",
@@ -24,10 +25,9 @@
     "node-cron": "^3.0.3",
     "prisma": "^5.22.0",
     "puppeteer": "^23",
+    "puppeteer-core": "^23.11.1",
     "puppeteer-extra": "^3",
-    "puppeteer-extra-plugin-stealth": "^2",
-    "@sparticuz/chromium": "^131.0.0",
-    "puppeteer-core": "^23.7.0"
+    "puppeteer-extra-plugin-stealth": "^2"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
