@@ -4,6 +4,22 @@
 <link rel="apple-touch-icon" href="/public/icon-192.png">
 <link rel="manifest" href="/manifest.webmanifest">
 
+<!-- put this near the top of inbox.ejs, under the manifest/meta tags -->
+<div id="ios-install-hint" class="card" style="display:none; margin-bottom:10px;">
+  <b>Add to Home Screen to enable notifications</b>
+  <div class="muted">Open in Safari → Share → Add to Home Screen, then launch from the new icon.</div>
+</div>
+<script>
+(function(){
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const standalone = window.navigator.standalone === true; // iOS-only flag
+  if (isIOS && !standalone) {
+    document.getElementById('ios-install-hint').style.display = 'block';
+  }
+})();
+</script>
+
+
 <noscript>
   <div class="card" style="background:#fff3cd;border:1px solid #ffe08a">
     JavaScript is required for notifications and tabs.
