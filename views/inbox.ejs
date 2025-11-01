@@ -10,9 +10,8 @@
   </div>
 </noscript>
 
-<!-- Push enable CTA -->
-<!-- Notifications CTA (always in the DOM; we decide visibility in JS) -->
-<div class="card" id="push-setup" style="margin-bottom:10px; display:block;">
+<!-- Push enable CTA (visibility controlled by JS) -->
+<div class="card" id="push-setup" style="margin-bottom:10px; display:none;">
   <b>Enable notifications?</b>
   <div class="muted">Get alerts on your iPhone and desktop even when the app is closed.</div>
   <div class="actions" style="margin-top:8px; gap:8px;">
@@ -22,54 +21,99 @@
   <div id="push-state" class="muted" style="margin-top:6px; font-size:12px; display:none;"></div>
 </div>
 
+<!-- Inline push debug strip -->
+<div id="push-debug" class="muted" style="margin:6px 0 12px; font-size:12px;"></div>
+
 <script>
   const VAPID_PUBLIC_KEY = '<%= process.env.VAPID_PUBLIC_KEY ? process.env.VAPID_PUBLIC_KEY : "" %>';
+
   const pushEnableBtn = document.getElementById('push-enable');
   const pushResetBtn  = document.getElementById('push-reset');
   const pushSetup     = document.getElementById('push-setup');
   const pushStateEl   = document.getElementById('push-state');
+  const pushDebugEl   = document.getElementById('push-debug');
   let swReg = null;
 
-  // Always register SW early, like Breaking Alerts
-  document.addEventListener('DOMContentLoaded', () => {
-    initPush().catch(console.error);
-  });
+  // Utility: detect PWA standalone (iOS Safari requires Home Screen)
+  function isStandalone() {
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  }
+
+  function b64ToU8(s){
+    const p = '='.repeat((4 - s.length % 4) % 4);
+    const b = (s + p).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(b); const out = new Uint8Array(raw.length);
+    for (let i=0;i<raw.length;i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  function setState({perm, hasSub, msg}={}){
+    const parts = [];
+    if (perm) parts.push(`permission: ${perm}`);
+    if (typeof hasSub === 'boolean') parts.push(`subscribed: ${hasSub ? 'yes' : 'no'}`);
+    if (msg) parts.push(msg);
+    pushStateEl.textContent = parts.join(' • ');
+    pushStateEl.style.display = parts.length ? 'block' : 'none';
+  }
+
+  async function updatePushDebug() {
+    const supportedSW   = 'serviceWorker' in navigator;
+    const supportedPush = 'PushManager' in window;
+    const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+    let sub = null;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      sub = await reg?.pushManager?.getSubscription() || null;
+    } catch {}
+    const rows = [
+      `standalone:${isStandalone()}`,
+      `sw:${supportedSW}`,
+      `push:${supportedPush}`,
+      `permission:${perm}`,
+      `subscribed:${!!sub}`,
+      `vapid:${!!VAPID_PUBLIC_KEY}`
+    ];
+    pushDebugEl.textContent = rows.join(' • ');
+  }
 
   async function initPush(){
+    // Always register SW early (like your Breaking Alerts app)
+    if ('serviceWorker' in navigator) {
+      try { swReg = await navigator.serviceWorker.register('/sw.js'); } catch { swReg = null; }
+      try { await navigator.serviceWorker.ready; } catch {}
+    }
+
     const supported = ('serviceWorker' in navigator);
-    if (!supported) { setState({msg:'service worker not supported'}); return; }
+    if (!supported) { setState({msg:'service worker not supported'}); updatePushDebug(); return; }
 
-    // Register SW no matter what (this also fixes scope issues on iOS)
-    swReg = await navigator.serviceWorker.register('/sw.js').catch(()=>null);
-    if (!swReg) { setState({msg:'sw register failed'}); return; }
-    await navigator.serviceWorker.ready;
-
-    // If you don’t have a VAPID key, we still let you request permission
-    // to put the app into iOS Notification settings (like Breaking Alerts).
     const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
-    const sub  = (swReg.pushManager && VAPID_PUBLIC_KEY)
+    const sub  = (swReg?.pushManager && VAPID_PUBLIC_KEY)
       ? await swReg.pushManager.getSubscription().catch(()=>null)
       : null;
 
-    // Button is visible if: permission is not granted OR there is no subscription (when VAPID is present)
-    const needSubscribe = !!VAPID_PUBLIC_KEY ? !sub : (perm !== 'granted');
+    // Show CTA if: (1) we have VAPID & no subscription, OR (2) permission not granted (lets iOS surface app in Settings)
+    const needSubscribe = VAPID_PUBLIC_KEY ? !sub : (perm !== 'granted');
+    // On iOS you must be in standalone (home screen) for push. We still show CTA to let user tap and see guidance.
     pushSetup.style.display = needSubscribe ? 'block' : 'none';
     pushResetBtn.style.display = sub ? 'inline-block' : 'none';
     setState({perm, hasSub: !!sub});
+    updatePushDebug();
   }
-
-  pushEnableBtn?.addEventListener('click', enablePush);
-  pushResetBtn?.addEventListener('click', resetPush);
 
   async function enablePush(){
     try {
-      // 1) Ask permission (user gesture)
       if (!('Notification' in window)) { alert('Notifications not supported on this device.'); return; }
+
+      // iOS guidance if not opened from Home Screen
+      if (!isStandalone() && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+        alert('On iPhone you must open this from the Home Screen icon (install via Safari Share → Add to Home Screen).');
+        return;
+      }
+
       let perm = Notification.permission;
       if (perm === 'default') perm = await Notification.requestPermission();
-      if (perm !== 'granted') { alert('Blocked. Enable in Settings ▸ Notifications for this app.'); return; }
+      if (perm !== 'granted') { alert('Blocked. Enable in Settings ▸ Notifications for this app.'); updatePushDebug(); return; }
 
-      // 2) If we have a VAPID key, create a Push subscription and POST it to the server
       if (VAPID_PUBLIC_KEY && swReg?.pushManager) {
         let sub = await swReg.pushManager.getSubscription();
         if (!sub) {
@@ -82,8 +126,7 @@
           method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(sub)
         });
       } else {
-        // No VAPID? We still show local notifications & iOS will list the app in Settings.
-        // Mirror a test toast via the SW so you see it backgrounded too:
+        // No VAPID: still mirror a local notification via SW so iOS adds app to Settings
         navigator.serviceWorker.controller?.postMessage({
           title: 'Booking Hub', body: 'Notifications enabled', url: '/'
         });
@@ -92,6 +135,7 @@
       pushSetup.style.display = 'none';
       pushResetBtn.style.display = 'inline-block';
       setState({perm:'granted', hasSub: true});
+      updatePushDebug();
       alert('Notifications enabled ✅');
     } catch (e) {
       console.error(e);
@@ -108,52 +152,44 @@
       setState({ hasSub:false, msg:'subscription reset' });
       pushSetup.style.display = 'block';
       pushResetBtn.style.display = 'none';
+      updatePushDebug();
     } catch (e) {
       console.error(e);
       alert('Could not reset.');
     }
   }
 
-  function b64ToU8(s){
-    const p = '='.repeat((4 - s.length % 4) % 4);
-    const b = (s + p).replace(/-/g, '+').replace(/_/g, '/');
-    const raw = atob(b); const out = new Uint8Array(raw.length);
-    for (let i=0;i<raw.length;i++) out[i] = raw.charCodeAt(i);
-    return out;
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64  = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64); const outputArray = new Uint8Array(rawData.length);
+    for (let i=0; i<rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
   }
-  function setState({perm, hasSub, msg}={}){
-    const parts = [];
-    if (perm) parts.push(`permission: ${perm}`);
-    if (typeof hasSub === 'boolean') parts.push(`subscribed: ${hasSub ? 'yes' : 'no'}`);
-    if (msg) parts.push(msg);
-    pushStateEl.textContent = parts.join(' • ');
-    pushStateEl.style.display = parts.length ? 'block' : 'none';
-  }
+
+  // Wire up buttons + init
+  document.addEventListener('DOMContentLoaded', () => {
+    pushEnableBtn?.addEventListener('click', enablePush);
+    pushResetBtn?.addEventListener('click', resetPush);
+    initPush().catch(console.error);
+  });
 </script>
-
-
 
 <h2 style="margin-top:0;">Inbox</h2>
 
 <!-- top controls: segmented tabs + actions -->
-<div class="segmented" role="tablist" aria-label="Inbox filters">
-  <button data-tab="unread"
-          class="<%= (tab||'unread')==='unread' ? 'active' : '' %>"
-          role="tab" aria-selected="<%= (tab||'unread')==='unread' %>">
-    Unread (<%= counts.unread %>)
-  </button>
-  <button data-tab="pending"
-          class="<%= tab==='pending' ? 'active' : '' %>"
-          role="tab" aria-selected="<%= tab==='pending' %>">
-    Pending (<%= counts.pending %>)
-  </button>
-  <button data-tab="booked"
-          class="<%= tab==='booked' ? 'active' : '' %>"
-          role="tab" aria-selected="<%= tab==='booked' %>">
-    Booked (<%= counts.booked %>)
-  </button>
-</div>
-
+<div class="tabs" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+  <div class="segmented" role="tablist" aria-label="Inbox filters">
+    <button class="<%= (tab||'unread')==='unread' ? 'active' : '' %>" data-tab="unread" role="tab" aria-selected="<%= (tab||'unread')==='unread' %>">
+      Unread (<%= counts.unread %>)
+    </button>
+    <button class="<%= tab==='pending' ? 'active' : '' %>" data-tab="pending" role="tab" aria-selected="<%= tab==='pending' %>">
+      Pending (<%= counts.pending %>)
+    </button>
+    <button class="<%= tab==='booked' ? 'active' : '' %>" data-tab="booked" role="tab" aria-selected="<%= tab==='booked' %>">
+      Booked (<%= counts.booked %>)
+    </button>
+  </div>
 
   <div style="margin-left:auto; display:flex; gap:10px; flex-wrap:wrap;">
     <a class="ghost" href="/exports/confirmed" target="_blank">Preview Confirmed</a>
@@ -258,7 +294,7 @@
   }
   setInterval(checkForNewMessages, 10000);
 
-  // --- Segmented tabs (client-side, with smooth CSS fade)
+  // --- Segmented tabs (client-side)
   const btns = document.querySelectorAll('.segmented button');
   const panels = {
     unread:  document.getElementById('tab-unread'),
