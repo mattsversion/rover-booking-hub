@@ -191,23 +191,21 @@ webhooks.post('/sms-forward', async (req, res) => {
         }
       });
     } else {
-      // If booking was canceled and we got a fresh inbound, re-open to PENDING
+      // If booking was canceled, DO NOT resurrect it.
       if (booking.status === 'CANCELED') {
-        booking = await prisma.booking.update({
-          where: { id: booking.id },
-          data: { status: 'PENDING' }
-        });
-      }
-      // If service was unknown, set it and refresh dates from the new message
-      if ((booking.serviceType || 'Unspecified') === 'Unspecified' && svc !== 'Unspecified') {
-        await prisma.booking.update({
-          where: { id: booking.id },
-          data: { serviceType: svc, startAt, endAt }
-        });
+        booking = null;
+      } else {
+        // If service was unknown, set it and refresh dates from the new message
+        if ((booking.serviceType || 'Unspecified') === 'Unspecified' && svc !== 'Unspecified') {
+          await prisma.booking.update({
+            where: { id: booking.id },
+            data: { serviceType: svc, startAt, endAt }
+          });
+        }
       }
     }
 
-    // ---- Create the inbound message (now that we have a booking) ----
+    // ---- Create the inbound message (now that we know booking/null) ----
     await prisma.message.create({
       data: {
         eid,
@@ -223,9 +221,10 @@ webhooks.post('/sms-forward', async (req, res) => {
         isBookingCandidate: true,
         extractedKeywordsJson: JSON.stringify(keywords),
         extractedDatesJson: JSON.stringify(datesToSerializable(dates)),
-        bookingId: booking.id
+        bookingId: booking ? booking.id : null   // <-- keep null if last was canceled
       }
     });
+
 
     // ---- Push notify devices (PWA) ----
     await sendPushAll({

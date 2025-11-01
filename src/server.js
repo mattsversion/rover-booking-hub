@@ -13,6 +13,7 @@ import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
 import webpush from 'web-push';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -54,6 +55,15 @@ app.get('/manifest.webmanifest', (_req, res) =>
 app.get('/sw.js', (_req, res) => {
   res.set('Content-Type', 'application/javascript');
   res.sendFile(path.join(__dirname, '../public/sw.js'));
+});
+
+app.get('/debug/push', (_req, res) => {
+  res.json({
+    vapidPublicPresent: !!process.env.VAPID_PUBLIC_KEY,
+    vapidPrivatePresent: !!process.env.VAPID_PRIVATE_KEY,
+    swServed: fsSync.existsSync(path.join(__dirname, '../public/sw.js')),
+    manifestServed: fsSync.existsSync(path.join(__dirname, '../public/manifest.webmanifest')),
+  });
 });
 
 // simple dashboard auth
