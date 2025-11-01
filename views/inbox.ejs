@@ -68,18 +68,24 @@ function urlBase64ToUint8Array(base64String) {
 <h2 style="margin-top:0;">Inbox</h2>
 
 <!-- top controls: segmented tabs + actions -->
-<div class="tabs">
-  <div class="segmented" role="tablist" aria-label="Inbox filters">
-    <button class="<%= (tab||'unread')==='unread' ? 'active' : '' %>" data-tab="unread" role="tab" aria-selected="<%= (tab||'unread')==='unread' %>">
-      Unread (<%= counts.unread %>)
-    </button>
-    <button class="<%= tab==='pending' ? 'active' : '' %>" data-tab="pending" role="tab" aria-selected="<%= tab==='pending' %>">
-      Pending (<%= counts.pending %>)
-    </button>
-    <button class="<%= tab==='booked' ? 'active' : '' %>" data-tab="booked" role="tab" aria-selected="<%= tab==='booked' %>">
-      Booked (<%= counts.booked %>)
-    </button>
-  </div>
+<div class="segmented" role="tablist" aria-label="Inbox filters">
+  <button data-tab="unread"
+          class="<%= (tab||'unread')==='unread' ? 'active' : '' %>"
+          role="tab" aria-selected="<%= (tab||'unread')==='unread' %>">
+    Unread (<%= counts.unread %>)
+  </button>
+  <button data-tab="pending"
+          class="<%= tab==='pending' ? 'active' : '' %>"
+          role="tab" aria-selected="<%= tab==='pending' %>">
+    Pending (<%= counts.pending %>)
+  </button>
+  <button data-tab="booked"
+          class="<%= tab==='booked' ? 'active' : '' %>"
+          role="tab" aria-selected="<%= tab==='booked' %>">
+    Booked (<%= counts.booked %>)
+  </button>
+</div>
+
 
   <div style="margin-left:auto; display:flex; gap:10px; flex-wrap:wrap;">
     <a class="ghost" href="/exports/confirmed" target="_blank">Preview Confirmed</a>
