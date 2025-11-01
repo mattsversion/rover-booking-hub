@@ -1,4 +1,69 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="/public/icon-192.png">
+<link rel="manifest" href="/manifest.webmanifest">
+
+<noscript>
+  <div class="card" style="background:#fff3cd;border:1px solid #ffe08a">
+    JavaScript is required for notifications and tabs.
+  </div>
+</noscript>
+
+<!-- Push enable CTA -->
+<div class="card" id="push-setup" style="display:none; margin-bottom:10px;">
+  <b>Enable push notifications?</b>
+  <div class="muted">Get alerts on your iPhone even when the app is closed.</div>
+  <div class="actions" style="margin-top:8px;">
+    <button class="ghost" type="button" onclick="enablePush()">Enable notifications</button>
+  </div>
+</div>
+
+<script>
+const VAPID_PUBLIC_KEY = '<%= process.env.VAPID_PUBLIC_KEY ? process.env.VAPID_PUBLIC_KEY : "" %>';
+
+(async function initPushUI(){
+  const supported = 'serviceWorker' in navigator && 'PushManager' in window && VAPID_PUBLIC_KEY;
+  if (!supported) return;
+  // Only show CTA if permission not already granted
+  if (Notification.permission !== 'granted') {
+    document.getElementById('push-setup').style.display = 'block';
+  }
+})();
+
+async function enablePush(){
+  try {
+    if (!('serviceWorker' in navigator)) return alert('Service worker not supported.');
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { alert('Notifications blocked. Enable in iOS Settings for this app.'); return; }
+
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array('<%= process.env.VAPID_PUBLIC_KEY || "" %>')
+    });
+
+    await fetch('/push/subscribe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sub)
+    });
+
+    alert('Notifications enabled ✅\nIf installed to Home Screen, it now appears in iOS Settings → Notifications.');
+    document.getElementById('push-setup').style.display = 'none';
+  } catch (e) {
+    console.error(e);
+    alert('Failed to enable notifications.');
+  }
+}
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64  = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64); const outputArray = new Uint8Array(rawData.length);
+  for (let i=0; i<rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+</script>
 
 <h2 style="margin-top:0;">Inbox</h2>
 
@@ -23,65 +88,7 @@
   </div>
 </div>
 
-<!-- panels -->
-<div class="tab-panels">
-
-  <!-- Unread -->
-  <div class="tab-panel <%= (tab||'unread')==='unread' ? 'active' : '' %>" id="tab-unread">
-    <h3>Unread</h3>
-    <div class="list">
-      <% if (!unread.length) { %>
-        <div class="card muted">No unread conversations.</div>
-      <% } %>
-      <% unread.forEach(b => { %>
-        <%- include('partials/booking-card', { b }) %>
-      <% }) %>
-    </div>
-  </div>
-
-  <!-- Pending -->
-  <div class="tab-panel <%= tab==='pending' ? 'active' : '' %>" id="tab-pending">
-    <h3>Pending</h3>
-    <div class="list">
-      <% if (!pending.length) { %>
-        <div class="card muted">Nothing pending.</div>
-      <% } %>
-      <% pending.forEach(b => { %>
-        <%- include('partials/booking-card', { b }) %>
-      <% }) %>
-    </div>
-  </div>
-
-  <!-- Booked -->
-  <div class="tab-panel <%= tab==='booked' ? 'active' : '' %>" id="tab-booked">
-    <h3>Booked</h3>
-    <div class="list">
-      <% if (!booked.length) { %>
-        <div class="card muted">No upcoming bookings.</div>
-      <% } %>
-      <% booked.forEach(b => { %>
-        <%- include('partials/booking-card', { b }) %>
-      <% }) %>
-    </div>
-  </div>
-</div>
-
-<!-- Floating Action Button (mobile) -->
-<a class="fab" href="/bookings/new" aria-label="New Booking">
-  <span class="icon">＋</span> New Booking
-</a>
-
-<!-- ====== inline partial (booking card) ================================== -->
-<%~ function(){ %>
-<%/* views/partials/booking-card.ejs shim (inline to keep single-file) */%>
-<% }() %>
-<script type="text/ejs" id="booking-card-template">
-  <% /* expects { b } in scope when included via EJS include above */ %>
-</script>
-<% /* render booking cards directly here since include path may not exist yet */ %>
-<script>
-  // no-op: template tag placeholder so EJS parser doesn't choke
-</script>
+<!-- ===== Inline helper to render a booking card (server-side EJS) ===== -->
 <% function card(b){ const last = (b.messages||[])[0]; %>
   <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
     <div style="flex:1;">
@@ -104,16 +111,51 @@
   </a>
 <% } %>
 
-<% /* render lists again using the inline 'card' helper where include path isn't available */ %>
-<script>
-  // nothing here; helper above runs server-side inside EJS
-</script>
+<!-- panels -->
+<div class="tab-panels">
+  <!-- Unread -->
+  <div class="tab-panel <%= (tab||'unread')==='unread' ? 'active' : '' %>" id="tab-unread">
+    <h3>Unread</h3>
+    <div class="list">
+      <% if (!unread.length) { %>
+        <div class="card muted">No unread conversations.</div>
+      <% } %>
+      <% unread.forEach(b => { %><% card(b) %><% }) %>
+    </div>
+  </div>
 
-<!-- ====== notifications + tabs JS ======================================= -->
+  <!-- Pending -->
+  <div class="tab-panel <%= tab==='pending' ? 'active' : '' %>" id="tab-pending">
+    <h3>Pending</h3>
+    <div class="list">
+      <% if (!pending.length) { %>
+        <div class="card muted">Nothing pending.</div>
+      <% } %>
+      <% pending.forEach(b => { %><% card(b) %><% }) %>
+    </div>
+  </div>
+
+  <!-- Booked -->
+  <div class="tab-panel <%= tab==='booked' ? 'active' : '' %>" id="tab-booked">
+    <h3>Booked</h3>
+    <div class="list">
+      <% if (!booked.length) { %>
+        <div class="card muted">No upcoming bookings.</div>
+      <% } %>
+      <% booked.forEach(b => { %><% card(b) %><% }) %>
+    </div>
+  </div>
+</div>
+
+<!-- Floating Action Button (mobile) -->
+<a class="fab" href="/bookings/new" aria-label="New Booking">
+  <span class="icon">＋</span> New Booking
+</a>
+
+<!-- ===== Notifications + tabs JS ===== -->
 <script>
-  // --- Notifications polling (kept from your version)
+  // --- Background polling (still useful alongside true push)
   let lastMessageTime = 0;
-
   async function checkForNewMessages(){
     try {
       const res = await fetch('/api/notifications/latest');
@@ -127,34 +169,28 @@
       }
     } catch(e){}
   }
-
   function notifyNewMessage(){
-    if (window.Notification) {
-      if(Notification.permission === 'granted'){
-        new Notification('📩 New Booking Message Received!');
-      } else if(Notification.permission !== 'denied'){
-        Notification.requestPermission().then(p => {
-          if(p === 'granted') new Notification('📩 New Booking Message Received!');
-        });
-      }
+    if (!('Notification' in window)) return;
+    if(Notification.permission === 'granted'){
+      new Notification('📩 New Booking Message Received!');
+    } else if(Notification.permission !== 'denied'){
+      Notification.requestPermission().then(p => {
+        if(p === 'granted') new Notification('📩 New Booking Message Received!');
+      });
     }
   }
-
-  // ask once on load in the PWA as a hint
   if (window.Notification && Notification.permission === 'default'){
     setTimeout(()=> Notification.requestPermission().catch(()=>{}), 800);
   }
+  setInterval(checkForNewMessages, 10000);
 
-  setInterval(checkForNewMessages, 10000); // every 10s
-
-  // --- Segmented tabs (client-side without reloading)
+  // --- Segmented tabs (client-side, with smooth CSS fade)
   const btns = document.querySelectorAll('.segmented button');
   const panels = {
     unread:  document.getElementById('tab-unread'),
     pending: document.getElementById('tab-pending'),
     booked:  document.getElementById('tab-booked'),
   };
-
   function setActiveTab(key){
     btns.forEach(x=>{
       x.classList.toggle('active', x.dataset.tab === key);
@@ -164,31 +200,10 @@
       if(!el) return;
       el.classList.toggle('active', k === key);
     });
-    // update the URL ?tab=... without reload, so share/refresh keeps the view
     const url = new URL(location.href);
     url.searchParams.set('tab', key);
     history.replaceState(null, '', url);
   }
-
-  btns.forEach(b=>{
-    b.addEventListener('click', ()=> setActiveTab(b.dataset.tab));
-  });
-
-  // ensure server-selected tab is respected on hydration
+  btns.forEach(b=> b.addEventListener('click', ()=> setActiveTab(b.dataset.tab)));
   setActiveTab('<%= (tab||"unread") %>');
-</script>
-
-<!-- ====== server-side card rendering fallbacks =========================== -->
-<% /* Server-side render of lists using inline helper */ %>
-<% function renderList(arr, emptyText){ %>
-  <div class="list">
-    <% if (!arr.length) { %>
-      <div class="card muted"><%= emptyText %></div>
-    <% } %>
-    <% arr.forEach(b => { %><% card(b) %><% }) %>
-  </div>
-<% } %>
-
-<script>
-  // nothing; just keeping structure tidy
 </script>
