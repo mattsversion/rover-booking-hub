@@ -11,90 +11,88 @@
 </noscript>
 
 <!-- Push enable CTA -->
-<div class="card" id="push-setup" style="display:none; margin-bottom:10px;">
-  <b>Enable push notifications?</b>
-  <div class="muted">Get alerts on your iPhone even when the app is closed.</div>
+<!-- Notifications CTA (always in the DOM; we decide visibility in JS) -->
+<div class="card" id="push-setup" style="margin-bottom:10px; display:block;">
+  <b>Enable notifications?</b>
+  <div class="muted">Get alerts on your iPhone and desktop even when the app is closed.</div>
   <div class="actions" style="margin-top:8px; gap:8px;">
-    <button class="ghost" type="button" onclick="enablePush()">Enable notifications</button>
-    <button class="ghost" type="button" onclick="resetPush()" style="display:none" id="push-reset">Reset</button>
+    <button class="ghost" type="button" id="push-enable">Enable notifications</button>
+    <button class="ghost" type="button" id="push-reset" style="display:none">Reset</button>
   </div>
+  <div id="push-state" class="muted" style="margin-top:6px; font-size:12px; display:none;"></div>
 </div>
-
-<!-- (Optional) tiny status line so we can see current state -->
-<div id="push-state" class="muted" style="display:none; margin:-4px 0 10px 2px; font-size:12px;"></div>
 
 <script>
   const VAPID_PUBLIC_KEY = '<%= process.env.VAPID_PUBLIC_KEY ? process.env.VAPID_PUBLIC_KEY : "" %>';
-
-  // Register SW as early as possible so we can check subscription state
+  const pushEnableBtn = document.getElementById('push-enable');
+  const pushResetBtn  = document.getElementById('push-reset');
+  const pushSetup     = document.getElementById('push-setup');
+  const pushStateEl   = document.getElementById('push-state');
   let swReg = null;
 
+  // Always register SW early, like Breaking Alerts
   document.addEventListener('DOMContentLoaded', () => {
-    initPushUI().catch(console.error);
+    initPush().catch(console.error);
   });
 
-  async function initPushUI(){
-    const supported = ('serviceWorker' in navigator) && ('PushManager' in window) && VAPID_PUBLIC_KEY;
-    if (!supported) return; // older browser or missing key
+  async function initPush(){
+    const supported = ('serviceWorker' in navigator);
+    if (!supported) { setState({msg:'service worker not supported'}); return; }
 
-    // Always register; iOS requires the SW under the app’s scope.
-    swReg = await navigator.serviceWorker.register('/sw.js');
-    await navigator.serviceWorker.ready; // wait until active
+    // Register SW no matter what (this also fixes scope issues on iOS)
+    swReg = await navigator.serviceWorker.register('/sw.js').catch(()=>null);
+    if (!swReg) { setState({msg:'sw register failed'}); return; }
+    await navigator.serviceWorker.ready;
 
-    // Determine: permission + whether a subscription exists
-    const perm = (window.Notification ? Notification.permission : 'unsupported');
-    const sub  = await swReg.pushManager.getSubscription().catch(()=>null);
+    // If you don’t have a VAPID key, we still let you request permission
+    // to put the app into iOS Notification settings (like Breaking Alerts).
+    const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+    const sub  = (swReg.pushManager && VAPID_PUBLIC_KEY)
+      ? await swReg.pushManager.getSubscription().catch(()=>null)
+      : null;
 
-    // Show status helper (for debugging UX)
-    setPushStatus({ perm, hasSub: !!sub });
-
-    // Show CTA when:
-    // - permission is default (not yet decided) OR denied (offer reset help), OR
-    // - permission is granted BUT there's NO subscription yet
-    const needSubscribe = (perm === 'granted' && !sub);
-    const shouldShow = (perm !== 'granted') || needSubscribe;
-
-    document.getElementById('push-setup').style.display = shouldShow ? 'block' : 'none';
-    document.getElementById('push-reset').style.display = sub ? 'inline-block' : 'none';
-    document.getElementById('push-state').style.display = 'block';
+    // Button is visible if: permission is not granted OR there is no subscription (when VAPID is present)
+    const needSubscribe = !!VAPID_PUBLIC_KEY ? !sub : (perm !== 'granted');
+    pushSetup.style.display = needSubscribe ? 'block' : 'none';
+    pushResetBtn.style.display = sub ? 'inline-block' : 'none';
+    setState({perm, hasSub: !!sub});
   }
+
+  pushEnableBtn?.addEventListener('click', enablePush);
+  pushResetBtn?.addEventListener('click', resetPush);
 
   async function enablePush(){
     try {
-      if (!swReg) {
-        swReg = await navigator.serviceWorker.register('/sw.js');
-        await navigator.serviceWorker.ready;
-      }
-
-      // 1) Ask permission if needed
-      let perm = (window.Notification ? Notification.permission : 'unsupported');
+      // 1) Ask permission (user gesture)
+      if (!('Notification' in window)) { alert('Notifications not supported on this device.'); return; }
+      let perm = Notification.permission;
       if (perm === 'default') perm = await Notification.requestPermission();
-      if (perm !== 'granted') {
-        alert('Notifications are blocked. Enable them in iOS Settings ▸ Notifications for this app.');
-        return;
-      }
+      if (perm !== 'granted') { alert('Blocked. Enable in Settings ▸ Notifications for this app.'); return; }
 
-      // 2) If already subscribed, we’re done
-      let sub = await swReg.pushManager.getSubscription();
-      if (!sub) {
-        // 3) Subscribe
-        sub = await swReg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array('<%= process.env.VAPID_PUBLIC_KEY || "" %>')
+      // 2) If we have a VAPID key, create a Push subscription and POST it to the server
+      if (VAPID_PUBLIC_KEY && swReg?.pushManager) {
+        let sub = await swReg.pushManager.getSubscription();
+        if (!sub) {
+          sub = await swReg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: b64ToU8(VAPID_PUBLIC_KEY)
+          });
+        }
+        await fetch('/push/subscribe', {
+          method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(sub)
+        });
+      } else {
+        // No VAPID? We still show local notifications & iOS will list the app in Settings.
+        // Mirror a test toast via the SW so you see it backgrounded too:
+        navigator.serviceWorker.controller?.postMessage({
+          title: 'Booking Hub', body: 'Notifications enabled', url: '/'
         });
       }
 
-      // 4) Send to server
-      await fetch('/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sub)
-      });
-
-      setPushStatus({ perm: 'granted', hasSub: true });
-      document.getElementById('push-setup').style.display = 'none';
-      document.getElementById('push-reset').style.display = 'inline-block';
-      alert('Notifications enabled ✅\nIf you installed to Home Screen, you’ll now see “Booking Hub” in Settings ▸ Notifications.');
+      pushSetup.style.display = 'none';
+      pushResetBtn.style.display = 'inline-block';
+      setState({perm:'granted', hasSub: true});
+      alert('Notifications enabled ✅');
     } catch (e) {
       console.error(e);
       alert('Failed to enable notifications.');
@@ -103,34 +101,36 @@
 
   async function resetPush(){
     try {
-      if (!swReg) return;
-      const sub = await swReg.pushManager.getSubscription();
-      if (sub) await sub.unsubscribe();
-      setPushStatus({ perm: (Notification.permission || 'default'), hasSub: false });
-      document.getElementById('push-setup').style.display = 'block';
-      document.getElementById('push-reset').style.display = 'none';
-      alert('Push subscription reset. Tap “Enable notifications” again.');
+      if (swReg?.pushManager) {
+        const sub = await swReg.pushManager.getSubscription();
+        if (sub) await sub.unsubscribe();
+      }
+      setState({ hasSub:false, msg:'subscription reset' });
+      pushSetup.style.display = 'block';
+      pushResetBtn.style.display = 'none';
     } catch (e) {
       console.error(e);
-      alert('Could not reset subscription.');
+      alert('Could not reset.');
     }
   }
 
-  function urlBase64ToUint8Array(base64String) {
-    const padding = '='.repeat((4 - base64String.length % 4) % 4);
-    const base64  = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-    const rawData = atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-    for (let i=0; i<rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
-    return outputArray;
+  function b64ToU8(s){
+    const p = '='.repeat((4 - s.length % 4) % 4);
+    const b = (s + p).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(b); const out = new Uint8Array(raw.length);
+    for (let i=0;i<raw.length;i++) out[i] = raw.charCodeAt(i);
+    return out;
   }
-
-  function setPushStatus({ perm, hasSub }){
-    const el = document.getElementById('push-state');
-    if (!el) return;
-    el.textContent = `Push status — permission: ${perm}; subscribed: ${hasSub ? 'yes' : 'no'}`;
+  function setState({perm, hasSub, msg}={}){
+    const parts = [];
+    if (perm) parts.push(`permission: ${perm}`);
+    if (typeof hasSub === 'boolean') parts.push(`subscribed: ${hasSub ? 'yes' : 'no'}`);
+    if (msg) parts.push(msg);
+    pushStateEl.textContent = parts.join(' • ');
+    pushStateEl.style.display = parts.length ? 'block' : 'none';
   }
 </script>
+
 
 
 <h2 style="margin-top:0;">Inbox</h2>
