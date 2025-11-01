@@ -12,12 +12,11 @@ import { webhooks } from './routes/webhooks.js';
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
 import webpush from 'web-push';
+import fs from 'fs/promises';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname  = path.dirname(__filename);
 const app = express();
-
-
 
 app.use(morgan('dev'));
 app.use(express.json());
@@ -29,7 +28,6 @@ app.use((req, _res, next) => {
 });
 
 app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
-
 
 app.use('/webhooks', webhooks);
 app.use('/api', api);
@@ -47,30 +45,18 @@ app.get('/api/notifications/latest', async (_req, res) => {
   res.json(last || {});
 });
 
-
 app.use('/public', express.static(path.join(__dirname, '../public')));
 
-app.get('/debug/puppeteer', async (_req, res) => {
-  try {
-    const p = await puppeteer.executablePath();
-    res.json({ ok: true, executablePath: p });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
-
-// ===== PWA assets at root (iOS requires exact paths) =====
+// PWA assets at root (required by iOS)
 app.get('/manifest.webmanifest', (_req, res) =>
   res.sendFile(path.join(__dirname, '../public/manifest.webmanifest'))
 );
-// important: correct content-type
 app.get('/sw.js', (_req, res) => {
   res.set('Content-Type', 'application/javascript');
   res.sendFile(path.join(__dirname, '../public/sw.js'));
 });
 
-
-/** simple dashboard auth */
+// simple dashboard auth
 function requireAuth(req, res, next){
   if (req.path.startsWith('/webhooks')) return next();
   if (req.path === '/login' || req.path === '/do-login') return next();
@@ -126,8 +112,7 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 }
 
-// Minimal persistence (DB table is best; JSON works too). Using JSON file for speed.
-import fs from 'fs/promises';
+// Minimal persistence for subscriptions (JSON file)
 const SUBS_FILE = path.join(__dirname, '../storage/push-subs.json');
 
 async function loadSubs() {
@@ -139,7 +124,7 @@ async function saveSubs(subs) {
   await fs.writeFile(SUBS_FILE, JSON.stringify(subs, null, 2), 'utf8');
 }
 
-// Subscribe endpoint: save subscription
+// Save a subscription
 app.post('/push/subscribe', express.json(), async (req, res) => {
   try {
     if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
@@ -159,7 +144,7 @@ app.post('/push/subscribe', express.json(), async (req, res) => {
   }
 });
 
-// Optional test endpoint to broadcast a push
+// Optional broadcast test
 app.post('/push/test', async (_req, res) => {
   try {
     const subs = await loadSubs();
@@ -175,8 +160,6 @@ app.post('/push/test', async (_req, res) => {
     res.status(500).json({ error: 'push_failed' });
   }
 });
-
-
 
 /** BOOKING DETAIL: mark inbound as read */
 app.get('/booking/:id', async (req, res) => {
@@ -227,28 +210,24 @@ app.post('/bookings', async (req, res) => {
 });
 
 /** ===== Export: Confirmed Bookings -> PDF ===== */
-/** HTML preview */
 app.get('/exports/confirmed', async (_req, res) => {
   const bookings = await prisma.booking.findMany({
     where: { status: 'CONFIRMED' },
     orderBy: [{ startAt: 'asc' }, { clientName: 'asc' }],
     include: { pets: true }
   });
-  res.render('export-confirmed', { bookings, generatedAt: new Date() , layout: false });
+  res.render('export-confirmed', { bookings, generatedAt: new Date(), layout: false });
 });
 
-/** Direct PDF */
-// ========= EXPORT CONFIRMED BOOKINGS AS PDF =========
+// Direct PDF (Chromium-on-Render)
 app.get('/exports/confirmed.pdf', async (_req, res) => {
   try {
-    // 1) Pull confirmed, upcoming bookings with pets
     const confirmed = await prisma.booking.findMany({
       where: { status: 'CONFIRMED', endAt: { gte: new Date() } },
       orderBy: { startAt: 'asc' },
       include: { pets: true }
     });
 
-    // 2) Build minimal HTML with inline styles for print
     const html = `
 <!doctype html>
 <html>
@@ -292,11 +271,9 @@ app.get('/exports/confirmed.pdf', async (_req, res) => {
 </html>
     `;
 
-    // 3) Launch serverless Chromium (works on Render) and print
     let browser;
     try {
       const executablePath = await chromium.executablePath();
-
       browser = await puppeteer.launch({
         args: chromium.args,
         defaultViewport: chromium.defaultViewport,
@@ -319,7 +296,6 @@ app.get('/exports/confirmed.pdf', async (_req, res) => {
       return res.send(pdf);
     } catch (err) {
       if (browser) try { await browser.close(); } catch {}
-      // 4) Graceful fallback: send the HTML so you can "Print to PDF" in the browser
       console.error('PDF export failed, falling back to HTML:', err?.message || err);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(200).send(html);
@@ -338,7 +314,6 @@ app.get('/exports/confirmed.pdf', async (_req, res) => {
       .replaceAll("'",'&#39;');
   }
 });
-
 
 const port = process.env.PORT || 3000;
 app.listen(port, '0.0.0.0', () => console.log(`Listening on http://localhost:${port}`));
