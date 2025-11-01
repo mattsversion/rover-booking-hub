@@ -11,6 +11,7 @@ import expressLayouts from 'express-ejs-layouts';
 import { webhooks } from './routes/webhooks.js';
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
+import webpush from 'web-push';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,6 +29,7 @@ app.use((req, _res, next) => {
 });
 
 app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+
 
 app.use('/webhooks', webhooks);
 app.use('/api', api);
@@ -55,6 +57,16 @@ app.get('/debug/puppeteer', async (_req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
+});
+
+// ===== PWA assets at root (iOS requires exact paths) =====
+app.get('/manifest.webmanifest', (_req, res) =>
+  res.sendFile(path.join(__dirname, '../public/manifest.webmanifest'))
+);
+// important: correct content-type
+app.get('/sw.js', (_req, res) => {
+  res.set('Content-Type', 'application/javascript');
+  res.sendFile(path.join(__dirname, '../public/sw.js'));
 });
 
 
@@ -103,6 +115,65 @@ app.get('/', async (req, res) => {
     counts: { unread: unread.length, pending: pending.length, booked: booked.length },
     unread, pending, booked
   });
+});
+
+// ===== Web Push (VAPID) setup =====
+const VAPID_PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+const VAPID_SUBJECT     = process.env.VAPID_SUBJECT || 'mailto:you@example.com';
+
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+}
+
+// Minimal persistence (DB table is best; JSON works too). Using JSON file for speed.
+import fs from 'fs/promises';
+const SUBS_FILE = path.join(__dirname, '../storage/push-subs.json');
+
+async function loadSubs() {
+  try { return JSON.parse(await fs.readFile(SUBS_FILE, 'utf8')); }
+  catch { return []; }
+}
+async function saveSubs(subs) {
+  await fs.mkdir(path.dirname(SUBS_FILE), { recursive: true });
+  await fs.writeFile(SUBS_FILE, JSON.stringify(subs, null, 2), 'utf8');
+}
+
+// Subscribe endpoint: save subscription
+app.post('/push/subscribe', express.json(), async (req, res) => {
+  try {
+    if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+      return res.status(400).json({ error: 'vapid_not_configured' });
+    }
+    const sub = req.body;
+    if (!sub || !sub.endpoint) return res.status(400).json({ error: 'bad_subscription' });
+    const subs = await loadSubs();
+    if (!subs.find(s => s.endpoint === sub.endpoint)) {
+      subs.push(sub);
+      await saveSubs(subs);
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'subscribe_failed' });
+  }
+});
+
+// Optional test endpoint to broadcast a push
+app.post('/push/test', async (_req, res) => {
+  try {
+    const subs = await loadSubs();
+    const payload = JSON.stringify({
+      title: '📩 Booking Hub',
+      body: 'Test push delivered.',
+      url: '/'
+    });
+    await Promise.allSettled(subs.map(s => webpush.sendNotification(s, payload)));
+    res.json({ ok: true, sent: subs.length });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'push_failed' });
+  }
 });
 
 

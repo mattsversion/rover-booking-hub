@@ -1,0 +1,13 @@
+{
+  "name": "Booking Hub",
+  "short_name": "Bookings",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6b4efe",
+  "icons": [
+    { "src": "/public/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/public/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
