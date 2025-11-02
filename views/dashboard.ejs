@@ -1,0 +1,89 @@
+<!-- views/dashboard.ejs -->
+<h2 style="margin-top:0;">Daily dashboard</h2>
+
+<div class="tabs" style="margin-bottom:10px;">
+  <div class="segmented" role="tablist" aria-label="Dashboard sections">
+    <button class="active" data-tab="today"   role="tab" aria-selected="true">Today (<%= today.length %>)</button>
+    <button data-tab="upcoming" role="tab" aria-selected="false">Next 7 days (<%= upcoming.length %>)</button>
+    <button data-tab="stale"    role="tab" aria-selected="false">Pending > 24h (<%= stalePending.length %>)</button>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;">
+    <a class="ghost" href="/">Inbox</a>
+    <a class="ghost" href="/analytics">Analytics</a>
+  </div>
+</div>
+
+<% function card(b){ const last = (b.messages||[])[(b.messages||[]).length-1]; %>
+  <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
+    <div style="flex:1;">
+      <div style="font-weight:700;"><%= b.clientName %> • <%= b.status %></div>
+      <div class="muted"><b>Service:</b> <%= b.serviceType || '—' %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
+      <div class="muted"><%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %></div>
+      <% if (b.pets && b.pets.length) { %>
+        <div class="muted" style="margin-top:6px;">
+          <b>Pets:</b>
+          <%= b.pets.map(p => (p.name || '') + (p.breed ? (' · ' + p.breed) : '')).join(', ') %>
+        </div>
+      <% } %>
+      <% if (b.notes) { %><div style="margin-top:6px;"><%= b.notes %></div><% } %>
+      <% if (last?.body) { %><div class="muted" style="margin-top:6px;">last msg: <%= last.body.slice(0,140) %></div><% } %>
+    </div>
+  </a>
+<% } %>
+
+<div class="tab-panels">
+
+  <!-- Today -->
+  <div class="tab-panel active" id="tab-today">
+    <h3>Today</h3>
+    <div class="list">
+      <% if (!today.length) { %>
+        <div class="card muted">Nothing scheduled today.</div>
+      <% } %>
+      <% today.forEach(b => { %><% card(b) %><% }) %>
+    </div>
+  </div>
+
+  <!-- Next 7 days -->
+  <div class="tab-panel" id="tab-upcoming">
+    <h3>Next 7 days</h3>
+    <div class="list">
+      <% if (!upcoming.length) { %>
+        <div class="card muted">No upcoming bookings in the next week.</div>
+      <% } %>
+      <% upcoming.forEach(b => { %><% card(b) %><% }) %>
+    </div>
+  </div>
+
+  <!-- Stale pending -->
+  <div class="tab-panel" id="tab-stale">
+    <h3>Pending > 24 hours</h3>
+    <div class="list">
+      <% if (!stalePending.length) { %>
+        <div class="card muted">No stale pending threads.</div>
+      <% } %>
+      <% stalePending.forEach(b => { %><% card(b) %><% }) %>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const btns = document.querySelectorAll('.segmented button');
+  const panels = {
+    today:    document.getElementById('tab-today'),
+    upcoming: document.getElementById('tab-upcoming'),
+    stale:    document.getElementById('tab-stale'),
+  };
+  function setActive(key){
+    btns.forEach(b=>{
+      const on = b.dataset.tab===key;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', String(on));
+    });
+    Object.entries(panels).forEach(([k,el])=>{
+      el.classList.toggle('active', k===key);
+    });
+  }
+  btns.forEach(b => b.addEventListener('click', ()=> setActive(b.dataset.tab)));
+</script>
