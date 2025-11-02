@@ -1,0 +1,45 @@
+<h2 style="margin-top:0;">Client Profile</h2>
+
+<div class="card" style="margin-bottom:12px;">
+  <form method="post" action="/clients/<%= client.id %>">
+    <div style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
+      <div>
+        <div class="muted">Name</div>
+        <input name="name" value="<%= client.name || '' %>" />
+      </div>
+      <div>
+        <div class="muted">Phone</div>
+        <input value="<%= client.phone %>" disabled />
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;">
+        <input type="checkbox" name="trusted" <%= client.trusted ? 'checked' : '' %> />
+        Trusted (auto-confirm eligible)
+      </label>
+      <button class="btn" type="submit">Save</button>
+    </div>
+
+    <div style="margin-top:10px;">
+      <div class="muted">Notes</div>
+      <textarea name="notes" rows="4" style="width:100%;"><%= client.notes || '' %></textarea>
+    </div>
+  </form>
+</div>
+
+<h3>History</h3>
+<div class="list">
+  <% if (!bookings.length) { %>
+    <div class="card muted">No bookings yet.</div>
+  <% } %>
+
+  <% bookings.forEach(b => { const last = (b.messages||[])[0]; %>
+    <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
+      <div style="flex:1;">
+        <div style="font-weight:700;"><%= b.clientName %> • <%= b.status %></div>
+        <div class="muted"><%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %></div>
+        <div class="muted"><b>Service:</b> <%= b.serviceType %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
+        <% if (b.notes) { %><div style="margin-top:6px;"><%= b.notes %></div><% } %>
+        <% if (last?.body) { %><div class="muted" style="margin-top:6px;">last msg: <%= last.body.slice(0,140) %></div><% } %>
+      </div>
+    </a>
+  <% }) %>
+</div>

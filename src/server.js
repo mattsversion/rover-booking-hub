@@ -14,6 +14,7 @@ import puppeteer from 'puppeteer-core';
 import webpush from 'web-push';
 import fs from 'fs/promises';
 import fsSync from 'fs';
+import { ensureClientForPrivate } from './services/clients.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -30,6 +31,60 @@ app.use((req, _res, next) => {
 });
 
 app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+// --- Clients (private numbers only) ---
+app.get('/clients', async (_req, res) => {
+  // private numbers have client records; include quick stats
+  const clients = await prisma.client.findMany({
+    orderBy: { updatedAt: 'desc' }
+  });
+
+  // compute counts & last booking for each
+  const byId = new Map();
+  for (const c of clients) byId.set(c.id, c);
+
+  const bookings = await prisma.booking.findMany({
+    where: { clientId: { not: null } },
+    orderBy: { startAt: 'desc' },
+    select: { id: true, clientId: true, startAt: true, endAt: true, status: true, clientName: true }
+  });
+
+  const stats = {};
+  for (const b of bookings) {
+    const s = (stats[b.clientId] ||= { count: 0, last: null, confirmed: 0 });
+    s.count++;
+    if (b.status === 'CONFIRMED') s.confirmed++;
+    if (!s.last || b.startAt > s.last.startAt) s.last = b;
+  }
+
+  res.render('clients', { clients, stats });
+});
+
+app.get('/clients/:id', async (req, res) => {
+  const client = await prisma.client.findUnique({ where: { id: req.params.id } });
+  if (!client) return res.status(404).send('Client not found');
+
+  const bookings = await prisma.booking.findMany({
+    where: { clientId: client.id },
+    orderBy: { startAt: 'desc' },
+    include: { messages: { orderBy: { createdAt: 'desc' } }, pets: true }
+  });
+
+  res.render('client', { client, bookings });
+});
+
+app.post('/clients/:id', async (req, res) => {
+  const { notes, trusted, name } = req.body || {};
+  await prisma.client.update({
+    where: { id: req.params.id },
+    data: {
+      notes: (notes ?? '').toString().slice(0, 4000),
+      name: name ? String(name).slice(0, 200) : null,
+      trusted: trusted === 'on'
+    }
+  });
+  res.redirect(`/clients/${req.params.id}`);
+});
+
 
 app.use('/webhooks', webhooks);
 app.use('/api', api);
@@ -209,6 +264,28 @@ app.get('/booking/:id', async (req, res) => {
 /** ===== Manual Booking ===== */
 app.get('/bookings/new', (_req, res) => res.render('new-booking'));
 app.post('/bookings', async (req, res) => {
+
+// inside POST /bookings
+const created = await prisma.booking.create({
+  data: {
+    source: 'Manual',
+    clientName: clientName.trim(),
+    clientPhone: clientPhone?.trim() || null,
+    roverRelay: roverRelay?.trim() || null,
+    clientEmail: clientEmail?.trim() || null,
+    serviceType: serviceType?.trim() || 'Unspecified',
+    dogsCount: dogsCount ? Number(dogsCount) : 1,
+    startAt: start,
+    endAt: end,
+    status: 'PENDING',
+    notes: notes || null,
+    // NEW: link a Client only if this is a private number (no roverRelay)
+    clientId: (!roverRelay && clientPhone)
+      ? (await ensureClientForPrivate({ phone: clientPhone, name: clientName }))?.id
+      : null
+  }
+});
+
   try {
     const { clientName, clientPhone, roverRelay, clientEmail, serviceType, dogsCount, startAt, endAt, notes } = req.body;
     if (!clientName || !startAt || !endAt) return res.status(400).send('clientName, startAt, endAt required');
