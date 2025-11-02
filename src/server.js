@@ -18,6 +18,7 @@ import fsSync from 'fs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const app = express();
+const STORAGE_DIR = process.env.STORAGE_DIR || path.join(__dirname, '../storage');
 
 app.use(morgan('dev'));
 app.use(express.json());
@@ -75,6 +76,31 @@ function requireAuth(req, res, next){
 }
 app.use(requireAuth);
 
+// Danger: one-time cleanup for demo/test residue
+app.post('/admin/cleanup-demo', async (req, res) => {
+  const start = new Date('2025-11-12T00:00:00');
+  const end   = new Date('2025-11-15T00:00:00');
+
+  const delMsgs = await prisma.message.deleteMany({
+    where: {
+      createdAt: { gte: start, lt: end },
+      isBookingCandidate: true,
+      extractedDatesJson: { contains: '2025-11-12' }
+    }
+  });
+
+  const delBookings = await prisma.booking.deleteMany({
+    where: {
+      startAt: { gte: start, lt: end },
+      status: 'PENDING'
+    }
+  });
+
+  console.log('cleanup-demo removed', { delMsgs: delMsgs.count, delBookings: delBookings.count });
+  res.redirect('/');
+});
+
+
 app.get('/login', (_req, res) => res.render('login'));
 app.post('/do-login', (req, res) => {
   if ((req.body.password || '') === process.env.DASH_PASSWORD) {
@@ -123,16 +149,9 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 }
 
 // Minimal persistence for subscriptions (JSON file)
-const SUBS_FILE = path.join(__dirname, '../storage/push-subs.json');
-
-async function loadSubs() {
-  try { return JSON.parse(await fs.readFile(SUBS_FILE, 'utf8')); }
-  catch { return []; }
-}
-async function saveSubs(subs) {
-  await fs.mkdir(path.dirname(SUBS_FILE), { recursive: true });
-  await fs.writeFile(SUBS_FILE, JSON.stringify(subs, null, 2), 'utf8');
-}
+const SUBS_FILE   = path.join(STORAGE_DIR, 'push-subs.json');
+async function loadSubs(){ try { return JSON.parse(await fs.readFile(SUBS_FILE,'utf8')); } catch { return []; } }
+async function saveSubs(subs){ await fs.mkdir(STORAGE_DIR,{recursive:true}); await fs.writeFile(SUBS_FILE, JSON.stringify(subs,null,2),'utf8'); }
 
 // Save a subscription
 app.post('/push/subscribe', express.json(), async (req, res) => {

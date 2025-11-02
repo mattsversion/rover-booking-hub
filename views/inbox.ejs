@@ -4,197 +4,15 @@
 <link rel="apple-touch-icon" href="/public/icon-192.png">
 <link rel="manifest" href="/manifest.webmanifest">
 
-<!-- put this near the top of inbox.ejs, under the manifest/meta tags -->
-<div id="ios-install-hint" class="card" style="display:none; margin-bottom:10px;">
-  <b>Add to Home Screen to enable notifications</b>
-  <div class="muted">Open in Safari → Share → Add to Home Screen, then launch from the new icon.</div>
-</div>
-<script>
-(function(){
-  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  const standalone = window.navigator.standalone === true; // iOS-only flag
-  if (isIOS && !standalone) {
-    document.getElementById('ios-install-hint').style.display = 'block';
-  }
-})();
-</script>
-
-
 <noscript>
   <div class="card" style="background:#fff3cd;border:1px solid #ffe08a">
-    JavaScript is required for notifications and tabs.
+    JavaScript is required for tabs.
   </div>
 </noscript>
 
-<!-- Push enable CTA (visibility controlled by JS) -->
-<div class="card" id="push-setup" style="margin-bottom:10px; display:none;">
-  <b>Enable notifications?</b>
-  <div class="muted">Get alerts on your iPhone and desktop even when the app is closed.</div>
-  <div class="actions" style="margin-top:8px; gap:8px;">
-    <button class="ghost" type="button" id="push-enable">Enable notifications</button>
-    <button class="ghost" type="button" id="push-reset" style="display:none">Reset</button>
-  </div>
-  <div id="push-state" class="muted" style="margin-top:6px; font-size:12px; display:none;"></div>
-</div>
-
-<!-- Inline push debug strip -->
-<div id="push-debug" class="muted" style="margin:6px 0 12px; font-size:12px;"></div>
-
-<script>
-  const VAPID_PUBLIC_KEY = '<%= process.env.VAPID_PUBLIC_KEY ? process.env.VAPID_PUBLIC_KEY : "" %>';
-
-  const pushEnableBtn = document.getElementById('push-enable');
-  const pushResetBtn  = document.getElementById('push-reset');
-  const pushSetup     = document.getElementById('push-setup');
-  const pushStateEl   = document.getElementById('push-state');
-  const pushDebugEl   = document.getElementById('push-debug');
-  let swReg = null;
-
-  // Utility: detect PWA standalone (iOS Safari requires Home Screen)
-  function isStandalone() {
-    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-  }
-
-  function b64ToU8(s){
-    const p = '='.repeat((4 - s.length % 4) % 4);
-    const b = (s + p).replace(/-/g, '+').replace(/_/g, '/');
-    const raw = atob(b); const out = new Uint8Array(raw.length);
-    for (let i=0;i<raw.length;i++) out[i] = raw.charCodeAt(i);
-    return out;
-  }
-
-  function setState({perm, hasSub, msg}={}){
-    const parts = [];
-    if (perm) parts.push(`permission: ${perm}`);
-    if (typeof hasSub === 'boolean') parts.push(`subscribed: ${hasSub ? 'yes' : 'no'}`);
-    if (msg) parts.push(msg);
-    pushStateEl.textContent = parts.join(' • ');
-    pushStateEl.style.display = parts.length ? 'block' : 'none';
-  }
-
-  async function updatePushDebug() {
-    const supportedSW   = 'serviceWorker' in navigator;
-    const supportedPush = 'PushManager' in window;
-    const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
-    let sub = null;
-    try {
-      const reg = await navigator.serviceWorker.getRegistration();
-      sub = await reg?.pushManager?.getSubscription() || null;
-    } catch {}
-    const rows = [
-      `standalone:${isStandalone()}`,
-      `sw:${supportedSW}`,
-      `push:${supportedPush}`,
-      `permission:${perm}`,
-      `subscribed:${!!sub}`,
-      `vapid:${!!VAPID_PUBLIC_KEY}`
-    ];
-    pushDebugEl.textContent = rows.join(' • ');
-  }
-
-  async function initPush(){
-    // Always register SW early (like your Breaking Alerts app)
-    if ('serviceWorker' in navigator) {
-      try { swReg = await navigator.serviceWorker.register('/sw.js'); } catch { swReg = null; }
-      try { await navigator.serviceWorker.ready; } catch {}
-    }
-
-    const supported = ('serviceWorker' in navigator);
-    if (!supported) { setState({msg:'service worker not supported'}); updatePushDebug(); return; }
-
-    const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
-    const sub  = (swReg?.pushManager && VAPID_PUBLIC_KEY)
-      ? await swReg.pushManager.getSubscription().catch(()=>null)
-      : null;
-
-    // Show CTA if: (1) we have VAPID & no subscription, OR (2) permission not granted (lets iOS surface app in Settings)
-    const needSubscribe = VAPID_PUBLIC_KEY ? !sub : (perm !== 'granted');
-    // On iOS you must be in standalone (home screen) for push. We still show CTA to let user tap and see guidance.
-    pushSetup.style.display = needSubscribe ? 'block' : 'none';
-    pushResetBtn.style.display = sub ? 'inline-block' : 'none';
-    setState({perm, hasSub: !!sub});
-    updatePushDebug();
-  }
-
-  async function enablePush(){
-    try {
-      if (!('Notification' in window)) { alert('Notifications not supported on this device.'); return; }
-
-      // iOS guidance if not opened from Home Screen
-      if (!isStandalone() && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-        alert('On iPhone you must open this from the Home Screen icon (install via Safari Share → Add to Home Screen).');
-        return;
-      }
-
-      let perm = Notification.permission;
-      if (perm === 'default') perm = await Notification.requestPermission();
-      if (perm !== 'granted') { alert('Blocked. Enable in Settings ▸ Notifications for this app.'); updatePushDebug(); return; }
-
-      if (VAPID_PUBLIC_KEY && swReg?.pushManager) {
-        let sub = await swReg.pushManager.getSubscription();
-        if (!sub) {
-          sub = await swReg.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: b64ToU8(VAPID_PUBLIC_KEY)
-          });
-        }
-        await fetch('/push/subscribe', {
-          method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(sub)
-        });
-      } else {
-        // No VAPID: still mirror a local notification via SW so iOS adds app to Settings
-        navigator.serviceWorker.controller?.postMessage({
-          title: 'Booking Hub', body: 'Notifications enabled', url: '/'
-        });
-      }
-
-      pushSetup.style.display = 'none';
-      pushResetBtn.style.display = 'inline-block';
-      setState({perm:'granted', hasSub: true});
-      updatePushDebug();
-      alert('Notifications enabled ✅');
-    } catch (e) {
-      console.error(e);
-      alert('Failed to enable notifications.');
-    }
-  }
-
-  async function resetPush(){
-    try {
-      if (swReg?.pushManager) {
-        const sub = await swReg.pushManager.getSubscription();
-        if (sub) await sub.unsubscribe();
-      }
-      setState({ hasSub:false, msg:'subscription reset' });
-      pushSetup.style.display = 'block';
-      pushResetBtn.style.display = 'none';
-      updatePushDebug();
-    } catch (e) {
-      console.error(e);
-      alert('Could not reset.');
-    }
-  }
-
-  function urlBase64ToUint8Array(base64String) {
-    const padding = '='.repeat((4 - base64String.length % 4) % 4);
-    const base64  = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-    const rawData = atob(base64); const outputArray = new Uint8Array(rawData.length);
-    for (let i=0; i<rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
-    return outputArray;
-  }
-
-  // Wire up buttons + init
-  document.addEventListener('DOMContentLoaded', () => {
-    pushEnableBtn?.addEventListener('click', enablePush);
-    pushResetBtn?.addEventListener('click', resetPush);
-    initPush().catch(console.error);
-  });
-</script>
-
 <h2 style="margin-top:0;">Inbox</h2>
 
-<!-- top controls: segmented tabs + actions -->
-<div class="tabs" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+<div class="tabs">
   <div class="segmented" role="tablist" aria-label="Inbox filters">
     <button class="<%= (tab||'unread')==='unread' ? 'active' : '' %>" data-tab="unread" role="tab" aria-selected="<%= (tab||'unread')==='unread' %>">
       Unread (<%= counts.unread %>)
@@ -213,6 +31,7 @@
     <a class="ghost" href="/bookings/new">+ New booking</a>
   </div>
 </div>
+
 
 <!-- ===== Inline helper to render a booking card (server-side EJS) ===== -->
 <% function card(b){ const last = (b.messages||[])[0]; %>

@@ -9,6 +9,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
 model Booking {
   id          String    @id @default(cuid())
   // enums replaced with String:
@@ -66,11 +67,13 @@ model Message {
   updatedAt DateTime @default(now()) @updatedAt
 }
 
-
-
-
-
-
+model PushSub {
+  id        String   @id @default(cuid())
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+}
 
 
 model Block {

@@ -1,14 +1,164 @@
-html,body{margin:0;background:#f7f7fb;color:#111;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-a{color:#6b4efe;text-decoration:none}
-.topbar{padding:10px 14px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;background:#fff;position:sticky;top:0;z-index:2}
-.container{padding:14px}
-.list{display:flex;flex-direction:column;gap:10px}
-.card{background:#fff;border:1px solid #eee;border-radius:12px;padding:12px}
-.row{display:flex;justify-content:space-between;gap:10px;align-items:center}
-.muted{color:#666;font-size:12px;margin-top:6px}
-.actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
-button{padding:10px 12px;border:1px solid #ddd;border-radius:10px;background:#6b4efe;color:#fff;cursor:pointer}
-button.danger{background:#e74c3c;border-color:#e74c3c}
-a.ghost{padding:10px 12px;border:1px solid #ddd;border-radius:10px}
-.thread{list-style:none;padding:0;display:flex;flex-direction:column;gap:8px}
-.bubble{background:#fff;border:1px solid #eee;border-radius:10px;padding:10px}
+/* ===== base + theming ==================================================== */
+:root{
+  --bg:#f7f7fb;
+  --card:#fff;
+  --text:#111;
+  --muted:#666;
+  --border:#eee;
+  --brand:#6b4efe;
+  --danger:#e74c3c;
+  --shadow:0 1px 3px rgba(0,0,0,.08);
+}
+
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0f1115;
+    --card:#161a22;
+    --text:#eaeef6;
+    --muted:#9aa4b2;
+    --border:#232835;
+    --shadow:0 1px 3px rgba(0,0,0,.35);
+  }
+}
+
+html,body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+
+/* iPhone “Add to Home Screen” safe areas */
+body{
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.topbar{
+  padding: calc(10px + env(safe-area-inset-top)) 14px 10px 14px;
+  border-bottom:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center;
+  background:var(--card);
+  position:sticky;top:0;z-index:2;
+}
+.container{ padding:14px; }
+
+a{ color:var(--brand); text-decoration:none; }
+
+/* ===== cards / lists ===================================================== */
+.list{ display:flex; flex-direction:column; gap:10px; }
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:12px;
+  box-shadow:var(--shadow);
+}
+
+/* ===== rows & actions ==================================================== */
+.row{ display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap; }
+.actions{ display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; }
+.muted{ color:var(--muted); font-size:12px; margin-top:6px; }
+
+/* buttons */
+button, .btn{
+  padding:10px 12px;
+  border:1px solid color-mix(in oklab, var(--brand) 60%, var(--text) 10%, transparent);
+  border-radius:12px;
+  background:var(--brand);
+  color:#fff;
+  cursor:pointer;
+  font-weight:600;
+  transition: transform .06s ease, opacity .2s ease, background .2s ease;
+}
+button:active, .btn:active{ transform: translateY(1px) scale(.99); }
+button.ghost, a.ghost{
+  background:transparent;
+  color:var(--brand);
+  border:1px solid var(--border);
+}
+button.danger{ background:var(--danger); border-color:var(--danger); }
+a.ghost{ padding:10px 12px; border-radius:12px; }
+
+/* ===== message thread ==================================================== */
+.thread{ list-style:none; padding:0; display:flex; flex-direction:column; gap:8px; }
+.bubble{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:10px;
+  box-shadow:var(--shadow);
+}
+
+/* ===== segmented tabs (Unread / Pending / Booked) ======================== */
+.tabs{
+  display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;
+}
+.segmented{
+  display:inline-flex; background:var(--card); border:1px solid var(--border);
+  border-radius:12px; padding:4px; position:relative; gap:4px;
+}
+.segmented button{
+  background:transparent; color:var(--text); border:none; padding:8px 10px;
+  border-radius:8px; font-weight:600;
+}
+.segmented button.active{
+  background: color-mix(in oklab, var(--brand) 18%, transparent);
+  color: var(--brand);
+}
+
+/* Tab panels with smooth fade/slide */
+.tab-panels{ position:relative; }
+.tab-panel{
+  opacity:0; transform:translateY(4px);
+  pointer-events:none; max-height:0; overflow:hidden;
+  transition: opacity .25s ease, transform .25s ease, max-height .25s ease;
+}
+.tab-panel.active{
+  opacity:1; transform:none; pointer-events:auto; max-height:9999px;
+}
+
+/* ===== Floating Action Button (FAB) ====================================== */
+.fab{
+  position:fixed;
+  right:16px; bottom:16px;
+  padding:14px 16px;
+  border-radius:999px;
+  background:var(--brand);
+  color:#fff;
+  box-shadow: 0 8px 20px rgba(0,0,0,.2);
+  display:flex; align-items:center; gap:8px;
+  z-index:5;
+}
+.fab .icon{
+  width:18px; height:18px; display:inline-block; line-height:18px; text-align:center;
+  font-weight:800;
+}
+
+/* Show FAB only on small screens */
+@media (min-width: 721px){
+  .fab{ display:none; }
+}
+
+/* ===== mobile optimizations ============================================= */
+@media (max-width: 720px){
+  h1{ font-size:1.6rem; margin:8px 0; }
+  h2{ font-size:1.35rem; }
+  .actions{ flex-direction:column; }
+  .actions > *{ width:100%; }
+  .row > a, .row > button{ flex:1 1 auto; }
+  .card{ padding:12px; border-radius:14px; }
+  .list{ padding-bottom:90px; } /* space for FAB */
+}
+
+/* subtle hover for links on desktop */
+@media (hover:hover){
+  a:hover{ opacity:.9; }
+  button:hover{ opacity:.92; }
+}
+
+/* print tweaks for the PDF preview page */
+@media print{
+  .topbar, .fab { display:none !important; }
+  body{ background:#fff; }
+}

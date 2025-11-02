@@ -21,7 +21,9 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 // Persisted subscriptions (JSON file; db table is fine too)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
-const SUBS_FILE  = path.join(__dirname, '../../storage/push-subs.json');
+const STORAGE_DIR = process.env.STORAGE_DIR || path.join(__dirname, '../../storage');
+const SUBS_FILE   = path.join(STORAGE_DIR, 'push-subs.json');
+
 
 async function loadSubs() {
   try { return JSON.parse(await fs.readFile(SUBS_FILE, 'utf8')); }
