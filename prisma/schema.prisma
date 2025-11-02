@@ -33,6 +33,10 @@ model Booking {
   updatedAt   DateTime  @updatedAt
   messages    Message[]
   pets        Pet[] // renamed relation to plural for clarity
+
+// NEW: link back to Client when it's a private number
+  clientId    String?
+  client      Client?   @relation(fields: [clientId], references: [id])
 }
 
 model Message {
@@ -96,4 +100,16 @@ model Pet {
   photoUrl     String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+model Client {
+  id        String    @id @default(cuid())
+  phone     String    @unique
+  name      String?
+  notes     String?
+  trusted   Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  bookings  Booking[]
 }
