@@ -59,6 +59,25 @@ app.get('/clients', async (_req, res) => {
   res.render('clients', { clients, stats });
 });
 
+app.post('/admin/backfill-clients', async (_req, res) => {
+  const rows = await prisma.booking.findMany({
+    where: { clientPhone: { not: null }, OR: [{ roverRelay: null }, { roverRelay: '' }] },
+    select: { id: true, clientPhone: true, clientName: true, clientId: true }
+  });
+  let created = 0, linked = 0;
+  for (const r of rows) {
+    if (!r.clientId) {
+      const c = await ensureClientForPrivate({ phone: r.clientPhone, name: r.clientName });
+      if (c) {
+        await prisma.booking.update({ where: { id: r.id }, data: { clientId: c.id } });
+        linked++;
+      }
+    }
+  }
+  res.json({ ok: true, linked, created });
+});
+
+
 app.get('/clients/:id', async (req, res) => {
   const client = await prisma.client.findUnique({ where: { id: req.params.id } });
   if (!client) return res.status(404).send('Client not found');
