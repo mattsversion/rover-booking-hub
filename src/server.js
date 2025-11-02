@@ -344,6 +344,437 @@ app.get('/exports/confirmed.pdf', async (_req, res) => {
   }
 });
 
+// --- Daily Dashboard ---
+app.get('/dashboard', async (_req, res) => {
+  const now = new Date();
+  const startOfToday = new Date(now); startOfToday.setHours(0,0,0,0);
+  const endOfToday   = new Date(now); endOfToday.setHours(23,59,59,999);
+  const next7        = new Date(now.getTime() + 7*24*60*60*1000);
+
+  const [todayActive, upcoming7, stalePending] = await Promise.all([
+    // happening at any point today (overlaps today)
+    prisma.booking.findMany({
+      where: {
+        status: { in: ['PENDING','CONFIRMED'] },
+        AND: [
+          { endAt:   { gte: startOfToday } },
+          { startAt: { lte: endOfToday   } }
+        ]
+      },
+      orderBy: [{ startAt: 'asc' }, { clientName: 'asc' }],
+      include: { pets: true }
+    }),
+
+    // after today, within 7 days
+    prisma.booking.findMany({
+      where: {
+        status: { in: ['PENDING','CONFIRMED'] },
+        startAt: { gt: endOfToday, lte: next7 }
+      },
+      orderBy: [{ startAt: 'asc' }, { clientName: 'asc' }],
+      include: { pets: true }
+    }),
+
+    // pending older than 24h (nudge bucket)
+    prisma.booking.findMany({
+      where: {
+        status: 'PENDING',
+        createdAt: { lt: new Date(now.getTime() - 24*60*60*1000) }
+      },
+      orderBy: { createdAt: 'asc' }
+    })
+  ]);
+
+  res.render('dashboard', {
+    today: todayActive,
+    upcoming: upcoming7,
+    stalePending
+  });
+});
+
+// ===== Analytics + CSV export =====
+
+// tiny helpers
+function parseISODate(s) {
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+function startOfDay(d){ const x = new Date(d); x.setHours(0,0,0,0); return x; }
+function endOfDay(d){ const x = new Date(d); x.setHours(23,59,59,999); return x; }
+function fmt(n){ return Number.isFinite(n) ? n.toFixed(2) : '0.00'; }
+function padCSV(s=''){ return `"${String(s).replace(/"/g,'""')}"`; }
+
+// Default window = last 90 days
+function defaultRange() {
+  const to = new Date();
+  const from = new Date(to.getTime() - 90*24*60*60*1000);
+  return { from: startOfDay(from), to: endOfDay(to) };
+}
+
+// -------- Page: /analytics --------
+app.get('/analytics', async (req, res) => {
+  const qFrom = parseISODate(req.query.from);
+  const qTo   = parseISODate(req.query.to);
+
+  const { from: defFrom, to: defTo } = defaultRange();
+  const from = qFrom ? startOfDay(qFrom) : defFrom;
+  const to   = qTo   ? endOfDay(qTo)     : defTo;
+
+  // pull bookings that overlap range (start within range OR end within range)
+  const bookings = await prisma.booking.findMany({
+    where: {
+      OR: [
+        { startAt: { gte: from, lte: to } },
+        { endAt:   { gte: from, lte: to } }
+      ]
+    },
+    orderBy: { startAt: 'asc' },
+    include: { pets: true }
+  });
+
+  const msgs = await prisma.message.findMany({
+    where: { createdAt: { gte: from, lte: to } },
+    orderBy: { createdAt: 'asc' }
+  });
+
+  // ---- KPIs ----
+  const total = bookings.length;
+  const byStatus = groupCount(bookings, b => b.status || 'UNKNOWN');
+  const byService = groupCount(bookings, b => b.serviceType || 'Unspecified');
+
+  // conversion: % of PENDING created in window that became CONFIRMED in window or later
+  // (best-effort: we treat any CONFIRMED in window as converted)
+  const createdInWin = bookings.filter(b => b.createdAt >= from && b.createdAt <= to);
+  const createdPending = createdInWin.filter(b => b.status === 'PENDING').length;
+  const createdConfirmed = createdInWin.filter(b => b.status === 'CONFIRMED').length;
+  const conversionRate = createdPending + createdConfirmed > 0
+    ? (createdConfirmed / (createdPending + createdConfirmed)) * 100
+    : 0;
+
+  // avg lead time (days from createdAt -> startAt) for confirmed
+  const leadDays = bookings
+    .filter(b => b.status === 'CONFIRMED')
+    .map(b => (b.startAt - b.createdAt) / (24*60*60*1000))
+    .filter(d => Number.isFinite(d) && d >= 0);
+  const avgLead = leadDays.length ? (leadDays.reduce((a,b)=>a+b,0) / leadDays.length) : 0;
+
+  // hours booked next 30 days (occupancy)
+  const now = new Date();
+  const in30 = new Date(now.getTime() + 30*24*60*60*1000);
+  const upcoming = await prisma.booking.findMany({
+    where: {
+      status: 'CONFIRMED',
+      OR: [
+        { startAt: { gte: now, lte: in30 } },
+        { endAt:   { gte: now, lte: in30 } }
+      ]
+    },
+    orderBy: { startAt: 'asc' }
+  });
+  const hoursNext30 = upcoming.reduce((sum, b) => {
+    const s = new Date(Math.max(now, b.startAt));
+    const e = new Date(Math.min(in30, b.endAt));
+    const h = Math.max(0, (e - s) / (60*60*1000));
+    return sum + h;
+  }, 0);
+
+  // messages volume
+  const msgIn  = msgs.filter(m => m.direction === 'IN').length;
+  const msgOut = msgs.filter(m => m.direction === 'OUT').length;
+
+  // top non-Rover clients (private numbers): group by clientPhone where roverRelay is null
+  const privateBookings = bookings.filter(b => !b.roverRelay && b.clientPhone);
+  const topClients = Object.entries(groupCount(privateBookings, b => b.clientPhone))
+    .sort((a,b)=>b[1]-a[1]).slice(0,8)
+    .map(([phone, count]) => {
+      const first = privateBookings.find(b => b.clientPhone === phone);
+      return { phone, name: first?.clientName || '—', count };
+    });
+
+  // time-series by day (bookings created)
+  const byDay = groupCount(createdInWin, b => new Date(b.createdAt).toISOString().slice(0,10));
+
+  res.render('analytics', {
+    from, to,
+    totals: {
+      totalBookings: total,
+      byStatus,
+      byService,
+      conversionRate,
+      avgLead,
+      hoursNext30,
+      msgIn, msgOut
+    },
+    topClients,
+    byDay
+  });
+
+  function groupCount(arr, keyFn){
+    const m = new Map();
+    for (const x of arr) {
+      const k = keyFn(x);
+      m.set(k, (m.get(k)||0) + 1);
+    }
+    // turn into plain object for EJS ease
+    return Object.fromEntries([...m.entries()].sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
+  }
+});
+
+// -------- CSV: /exports/bookings.csv --------
+// Filters: ?from=YYYY-MM-DD&to=YYYY-MM-DD&status=PENDING|CONFIRMED|CANCELED (optional)
+app.get('/exports/bookings.csv', async (req, res) => {
+  const qFrom = parseISODate(req.query.from);
+  const qTo   = parseISODate(req.query.to);
+  const status = (req.query.status || '').toString().toUpperCase();
+
+  const { from: defFrom, to: defTo } = defaultRange();
+  const from = qFrom ? startOfDay(qFrom) : defFrom;
+  const to   = qTo   ? endOfDay(qTo)     : defTo;
+
+  const where = {
+    AND: [
+      { OR: [
+          { startAt: { gte: from, lte: to } },
+          { endAt:   { gte: from, lte: to } }
+        ] }
+    ]
+  };
+  if (['PENDING','CONFIRMED','CANCELED'].includes(status)) {
+    where.AND.push({ status });
+  }
+
+  const rows = await prisma.booking.findMany({
+    where, orderBy: { startAt: 'asc' }, include: { pets: true }
+  });
+
+  const header = [
+    'id','createdAt','startAt','endAt','status',
+    'clientName','clientPhone','roverRelay','clientEmail',
+    'serviceType','dogsCount','source','pets','notes'
+  ].join(',');
+
+  const lines = rows.map(b => [
+    b.id,
+    b.createdAt?.toISOString() || '',
+    b.startAt?.toISOString() || '',
+    b.endAt?.toISOString() || '',
+    b.status || '',
+    padCSV(b.clientName || ''),
+    padCSV(b.clientPhone || ''),
+    padCSV(b.roverRelay || ''),
+    padCSV(b.clientEmail || ''),
+    padCSV(b.serviceType || ''),
+    b.dogsCount ?? '',
+    padCSV(b.source || ''),
+    padCSV((b.pets||[]).map(p => p.name + (p.breed ? ` (${p.breed})` : '')).join('; ')),
+    padCSV(b.notes || '')
+  ].join(','));
+
+  const csv = [header, ...lines].join('\n');
+  res.setHeader('Content-Type','text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition','attachment; filename="bookings.csv"');
+  res.send(csv);
+});
+
+// -------- CSV: /exports/messages.csv --------
+// Filters: ?from=YYYY-MM-DD&to=YYYY-MM-DD&dir=IN|OUT (optional)
+app.get('/exports/messages.csv', async (req, res) => {
+  const qFrom = parseISODate(req.query.from);
+  const qTo   = parseISODate(req.query.to);
+  const dir   = (req.query.dir || '').toString().toUpperCase();
+
+  const { from: defFrom, to: defTo } = defaultRange();
+  const from = qFrom ? startOfDay(qFrom) : defFrom;
+  const to   = qTo   ? endOfDay(qTo)     : defTo;
+
+  const where = { createdAt: { gte: from, lte: to } };
+  if (['IN','OUT'].includes(dir)) where.direction = dir;
+
+  const rows = await prisma.message.findMany({
+    where, orderBy: { createdAt: 'asc' }
+  });
+
+  const header = [
+    'id','createdAt','bookingId','direction','channel',
+    'threadId','fromPhone','fromLabel','isRead',
+    'isBookingCandidate','body'
+  ].join(',');
+
+  const lines = rows.map(m => [
+    m.id,
+    m.createdAt?.toISOString() || '',
+    m.bookingId || '',
+    m.direction || '',
+    m.channel || '',
+    padCSV(m.threadId || ''),
+    padCSV(m.fromPhone || ''),
+    padCSV(m.fromLabel || ''),
+    m.isRead ? 1 : 0,
+    m.isBookingCandidate ? 1 : 0,
+    padCSV((m.body || '').slice(0, 2000))
+  ].join(','));
+
+  const csv = [header, ...lines].join('\n');
+  res.setHeader('Content-Type','text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition','attachment; filename="messages.csv"');
+  res.send(csv);
+});
+
+// --- quick DB sanity checks
+app.get('/debug/counts', async (_req, res) => {
+  const [bookings, messages] = await Promise.all([
+    prisma.booking.count(),
+    prisma.message.count()
+  ]);
+  res.json({ bookings, messages });
+});
+
+// --- one-click demo seed (idempotent-ish)
+app.post('/admin/seed-demo', async (_req, res) => {
+  const now = new Date();
+  const plus = d => new Date(now.getTime() + d*24*60*60*1000);
+
+  // only seed if you're basically empty
+  const hasAny = await prisma.booking.count();
+  if (hasAny > 0) return res.redirect('/');
+
+  const alice = await prisma.booking.create({
+    data: {
+      source: 'Manual',
+      clientName: 'Alice Rivera',
+      clientPhone: '555-1111',
+      serviceType: 'Overnight',
+      dogsCount: 1,
+      startAt: plus(1),
+      endAt: plus(3),
+      status: 'PENDING',
+      notes: 'First-time client (private number)'
+    }
+  });
+  await prisma.message.create({
+    data: {
+      bookingId: alice.id,
+      direction: 'IN',
+      channel: 'SMS',
+      body: 'Hi! Board my dog from Nov 7 to Nov 9?',
+      isBookingCandidate: true,
+      eid: 'demo-eid-1',
+      platform: 'sms',
+      threadId: '555-1111',
+      fromPhone: '555-1111'
+    }
+  });
+
+  const bob = await prisma.booking.create({
+    data: {
+      source: 'Rover',
+      clientName: 'Bob Chen',
+      roverRelay: 'r.rover.com/xyz',
+      serviceType: 'Daycare',
+      dogsCount: 2,
+      startAt: plus(5),
+      endAt: plus(5),
+      status: 'CONFIRMED',
+      notes: 'Repeat via Rover'
+    }
+  });
+  await prisma.message.create({
+    data: {
+      bookingId: bob.id,
+      direction: 'OUT',
+      channel: 'SMS',
+      body: 'Confirmed for Daycare on the 12th 9–5.',
+      isBookingCandidate: false,
+      eid: 'demo-eid-2',
+      platform: 'sms',
+      threadId: 'r.rover.com/xyz',
+      fromPhone: null
+    }
+  });
+
+  res.redirect('/');
+});
+
+// optional: nuke demo data if you want to clear later
+app.post('/admin/clear-all', async (_req, res) => {
+  await prisma.message.deleteMany({});
+  await prisma.booking.deleteMany({});
+  res.redirect('/');
+});
+
+// --- DEBUG + ADMIN HELPERS --------------------------------------
+
+// quick counts
+app.get('/debug/counts', async (_req, res) => {
+  const [bookings, messages] = await Promise.all([
+    prisma.booking.count(),
+    prisma.message.count()
+  ]);
+  res.json({ bookings, messages });
+});
+
+// seed a couple of demo rows so the inbox shows something
+app.post('/admin/seed-demo', async (_req, res) => {
+  // basic pending with one IN message (unread)
+  const b1 = await prisma.booking.create({
+    data: {
+      source: 'Demo',
+      clientName: 'Ralph (demo)',
+      clientPhone: '+15550001',
+      serviceType: 'Overnight',
+      dogsCount: 1,
+      startAt: new Date('2025-11-07T17:00:00Z'),
+      endAt:   new Date('2025-11-11T17:00:00Z'),
+      status: 'PENDING',
+      notes: 'seeded demo'
+    }
+  });
+  await prisma.message.create({
+    data: {
+      bookingId: b1.id,
+      direction: 'IN',
+      channel: 'SMS',
+      fromLabel: 'Ralph',
+      body: 'New booking request (dog boarding) Nov 7–11',
+      isRead: false,
+      isBookingCandidate: true,
+      eid: 'seed-1',
+      platform: 'sms',
+      threadId: '+15550001',
+      fromPhone: '+15550001'
+    }
+  });
+
+  // one confirmed upcoming
+  await prisma.booking.create({
+    data: {
+      source: 'Demo',
+      clientName: 'Mila (demo)',
+      clientPhone: '+15550002',
+      serviceType: 'Daycare',
+      dogsCount: 2,
+      startAt: new Date(Date.now() + 2 * 24*60*60*1000),
+      endAt:   new Date(Date.now() + 3 * 24*60*60*1000),
+      status: 'CONFIRMED',
+      notes: 'seeded demo'
+    }
+  });
+
+  res.redirect('/');
+});
+
+// nuke everything (careful)
+app.post('/admin/clear-all', async (_req, res) => {
+  await prisma.message.deleteMany({});
+  await prisma.pet.deleteMany({}).catch(()=>{});
+  await prisma.booking.deleteMany({});
+  res.redirect('/');
+});
+
+
+
+
 const port = process.env.PORT || 3000;
 app.listen(port, '0.0.0.0', () => console.log(`Listening on http://localhost:${port}`));
 
