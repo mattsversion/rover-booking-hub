@@ -7,6 +7,7 @@ import webpush from 'web-push';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { ensureClientForPrivate } from '../services/clients.js';
 
 export const webhooks = express.Router();
 
@@ -171,6 +172,12 @@ webhooks.post('/sms-forward', async (req, res) => {
 
     const receivedAt = new Date(Number(timestamp) || Date.now());
 
+    // rover relay vs private phone
+const isRelay = /@r\.rover\.com/i.test(from);
+const clientPhone = isRelay ? null : from;
+const roverRelay  = isRelay ? from  : null;
+
+
     // ---- Stable message EID (dedupe BEFORE any writes) ----
     const eid = buildEID({
       platform: 'sms',
@@ -213,32 +220,44 @@ webhooks.post('/sms-forward', async (req, res) => {
     }
 
     // ---- Find recent booking for this number (last 30 days, any status) ----
-    let booking = await prisma.booking.findFirst({
-      where: {
-        OR: [{ clientPhone: from }, { roverRelay: from }],
-        createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+let booking = await prisma.booking.findFirst({
+  where: {
+    ...(isRelay ? { roverRelay: from } : { clientPhone: from }),
+    createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+  },
+  orderBy: { createdAt: 'desc' }
+});
+
+
 
     const svc     = classifyService(body);
     const startAt = range?.startAt || receivedAt;
     const endAt   = range?.endAt   || new Date(startAt.getTime() + 60 * 60 * 1000);
 
+    // Create/find Client only for private numbers (skip Rover relay)
+let clientId = null;
+if (!isRelay && clientPhone) {
+  clientId = (await ensureClientForPrivate({ phone: clientPhone, name: from }))?.id || null;
+}
+
+
     if (!booking || booking.status === 'CANCELED') {
       // Create a fresh PENDING booking instead of resurrecting canceled threads
-      booking = await prisma.booking.create({
-        data: {
-          source: 'SMS',
-          clientName: from,
-          clientPhone: from,
-          roverRelay: from,
-          serviceType: svc,
-          startAt, endAt,
-          status: 'PENDING',
-          notes: 'Created from SMS (filtered booking candidate)'
-        }
-      });
+booking = await prisma.booking.create({
+  data: {
+    source: 'SMS',
+    clientName: from,
+    clientPhone,           // private phone or null
+    roverRelay,            // rover relay or null
+    serviceType: svc,
+    startAt, endAt,
+    status: 'PENDING',
+    notes: 'Created from SMS (filtered booking candidate)',
+    clientId               // only set for private numbers
+  }
+});
+
+
     } else {
       // Enrich the existing booking:
       //  - fill missing service type
@@ -258,6 +277,15 @@ webhooks.post('/sms-forward', async (req, res) => {
       if (Object.keys(patch).length) {
         booking = await prisma.booking.update({ where: { id: booking.id }, data: patch });
       }
+
+      // Backfill clientId later if we now know it's a private number
+if (!booking.clientId && clientId) {
+  await prisma.booking.update({
+    where: { id: booking.id },
+    data: { clientId }
+  });
+}
+
     }
 
     // ---- Create the inbound message, linked to the booking ----
@@ -267,7 +295,7 @@ webhooks.post('/sms-forward', async (req, res) => {
         platform: 'sms',
         threadId: from,
         providerMessageId: null,
-        fromPhone: from,
+        fromPhone: clientPhone || from,
         direction: 'IN',
         channel: 'SMS',
         fromLabel: from,
