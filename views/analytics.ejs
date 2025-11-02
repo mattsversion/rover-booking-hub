@@ -1,0 +1,98 @@
+<h2 style="margin-top:0;">Analytics</h2>
+
+<form method="get" class="row card" style="gap:10px; align-items:flex-end;">
+  <div>
+    <label class="muted">From</label>
+    <input type="date" name="from" value="<%= new Date(from).toISOString().slice(0,10) %>">
+  </div>
+  <div>
+    <label class="muted">To</label>
+    <input type="date" name="to" value="<%= new Date(to).toISOString().slice(0,10) %>">
+  </div>
+  <button class="ghost" type="submit">Apply</button>
+
+  <div style="margin-left:auto; display:flex; gap:8px; flex-wrap:wrap;">
+    <a class="ghost" href="/analytics">Last 90d</a>
+    <a class="ghost" href="/analytics?from=<%= new Date(Date.now()-7*864e5).toISOString().slice(0,10) %>&to=<%= new Date().toISOString().slice(0,10) %>">7d</a>
+    <a class="ghost" href="/analytics?from=<%= new Date(Date.now()-30*864e5).toISOString().slice(0,10) %>&to=<%= new Date().toISOString().slice(0,10) %>">30d</a>
+    <a class="ghost" href="/analytics?from=<%= new Date(new Date().getFullYear(),0,1).toISOString().slice(0,10) %>&to=<%= new Date().toISOString().slice(0,10) %>">YTD</a>
+  </div>
+</form>
+
+<div class="grid" style="display:grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:10px;">
+  <div class="card">
+    <div class="muted">Total bookings</div>
+    <div style="font-size:28px; font-weight:700;"><%= totals.totalBookings %></div>
+  </div>
+  <div class="card">
+    <div class="muted">Conversion (created→confirmed)</div>
+    <div style="font-size:28px; font-weight:700;"><%= (totals.conversionRate||0).toFixed(0) %>%</div>
+  </div>
+  <div class="card">
+    <div class="muted">Avg lead time (days)</div>
+    <div style="font-size:28px; font-weight:700;"><%= (totals.avgLead||0).toFixed(1) %></div>
+  </div>
+  <div class="card">
+    <div class="muted">Hours booked (next 30d)</div>
+    <div style="font-size:28px; font-weight:700;"><%= (totals.hoursNext30||0).toFixed(1) %>h</div>
+  </div>
+  <div class="card">
+    <div class="muted">Messages</div>
+    <div><b>IN:</b> <%= totals.msgIn %> • <b>OUT:</b> <%= totals.msgOut %></div>
+  </div>
+</div>
+
+<div class="row" style="gap:10px; margin-top:10px; flex-wrap:wrap;">
+  <a class="ghost" href="/exports/bookings.csv?from=<%= new Date(from).toISOString().slice(0,10) %>&to=<%= new Date(to).toISOString().slice(0,10) %>">Download bookings CSV</a>
+  <a class="ghost" href="/exports/messages.csv?from=<%= new Date(from).toISOString().slice(0,10) %>&to=<%= new Date(to).toISOString().slice(0,10) %>">Download messages CSV</a>
+</div>
+
+<div class="grid" style="display:grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap:10px; margin-top:10px;">
+  <div class="card">
+    <h3 style="margin-top:0;">By status</h3>
+    <% if (!Object.keys(totals.byStatus||{}).length) { %>
+      <div class="muted">—</div>
+    <% } else { %>
+      <% Object.entries(totals.byStatus).forEach(([k,v]) => { %>
+        <div class="row" style="justify-content:space-between;"><span><%= k %></span><b><%= v %></b></div>
+      <% }) %>
+    <% } %>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">By service</h3>
+    <% if (!Object.keys(totals.byService||{}).length) { %>
+      <div class="muted">—</div>
+    <% } else { %>
+      <% Object.entries(totals.byService).forEach(([k,v]) => { %>
+        <div class="row" style="justify-content:space-between;"><span><%= k %></span><b><%= v %></b></div>
+      <% }) %>
+    <% } %>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Top private clients</h3>
+    <% if (!(topClients||[]).length) { %>
+      <div class="muted">—</div>
+    <% } else { %>
+      <% topClients.forEach(c => { %>
+        <div class="row" style="justify-content:space-between;">
+          <span><b><%= c.name %></b> <span class="muted">(<%= c.phone %>)</span></span>
+          <b><%= c.count %></b>
+        </div>
+      <% }) %>
+    <% } %>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Bookings created by day</h3>
+    <% const days = Object.entries(byDay||{}).sort((a,b)=>a[0].localeCompare(b[0])); %>
+    <% if (!days.length) { %>
+      <div class="muted">—</div>
+    <% } else { %>
+      <% days.forEach(([d,c]) => { %>
+        <div class="row" style="justify-content:space-between;"><span><%= d %></span><b><%= c %></b></div>
+      <% }) %>
+    <% } %>
+  </div>
+</div>

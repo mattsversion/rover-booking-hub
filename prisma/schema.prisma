@@ -5,9 +5,11 @@ generator client {
 
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+
 
 
 model Booking {
@@ -35,7 +37,7 @@ model Booking {
   pets        Pet[] // renamed relation to plural for clarity
 
 // NEW: link back to Client when it's a private number
-  clientId    String?
+  clientId    String?                    // <— NEW
   client      Client?   @relation(fields: [clientId], references: [id])
 }
 
@@ -104,10 +106,11 @@ model Pet {
 
 model Client {
   id        String    @id @default(cuid())
-  phone     String    @unique
   name      String?
-  notes     String?
+  phone     String?   @unique
+  email     String?
   trusted   Boolean   @default(false)
+  isPrivate Boolean   @default(false)   // <— NEW: mark as verified non-Rover
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 

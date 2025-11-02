@@ -10,7 +10,11 @@
       <div style="flex:1;">
         <div style="font-weight:700;"><%= c.name || '—' %></div>
         <div class="muted"><b>Phone:</b> <%= c.phone %></div>
-        <div class="muted">
+<div class="muted">
+  <%= c.isPrivate ? 'Private 📱' : 'Rover relay 🔁' %>
+  · <%= c.trusted ? 'Trusted ✅' : '' %>
+</div>
+
           <b>Bookings:</b> <%= s.count %>
           • <b>Confirmed:</b> <%= s.confirmed %>
           <% if (s.last) { %> • <b>Last:</b> <%= new Date(s.last.startAt).toLocaleDateString() %> <% } %>

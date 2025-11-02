@@ -94,13 +94,14 @@ app.get('/clients/:id', async (req, res) => {
 });
 
 app.post('/clients/:id', async (req, res) => {
-  const { notes, trusted, name } = req.body || {};
+  const { notes, trusted, name, isPrivate } = req.body || {};
   await prisma.client.update({
     where: { id: req.params.id },
     data: {
       notes: (notes ?? '').toString().slice(0, 4000),
       name: name ? String(name).slice(0, 200) : null,
-      trusted: trusted === 'on'
+      trusted: trusted === 'on',
+      isPrivate: isPrivate === 'on'   // <— NEW
     }
   });
   res.redirect(`/clients/${req.params.id}`);

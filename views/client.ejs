@@ -15,6 +15,11 @@
         <input type="checkbox" name="trusted" <%= client.trusted ? 'checked' : '' %> />
         Trusted (auto-confirm eligible)
       </label>
+      <label style="display:flex;gap:8px;align-items:center;">
+  <input type="checkbox" name="isPrivate" <%= client.isPrivate ? 'checked' : '' %> />
+  Private number (non-Rover)
+</label>
+
       <button class="btn" type="submit">Save</button>
     </div>
 

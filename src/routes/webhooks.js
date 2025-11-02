@@ -170,12 +170,26 @@ webhooks.post('/sms-forward', async (req, res) => {
     }
     if (!from || !body) return res.status(400).json({ error: 'Missing fields' });
 
-    const receivedAt = new Date(Number(timestamp) || Date.now());
+const receivedAt = new Date(Number(timestamp) || Date.now());
 
-    // rover relay vs private phone
-const isRelay = /@r\.rover\.com/i.test(from);
-const clientPhone = isRelay ? null : from;
-const roverRelay  = isRelay ? from  : null;
+// Link or create a client for this phone; do NOT mark private by default
+const client = await (async () => {
+  try {
+    const { ensureClient } = await import('../services/clients.js');
+    return await ensureClient(prisma, { phone: from, name: from, markPrivate: false });
+  } catch {
+    return null;
+  }
+})();
+
+// Determine handling from the client's flag
+const isPrivate  = !!client?.isPrivate;
+const clientPhone = isPrivate ? from : null;
+const roverRelay  = isPrivate ? null : from;
+const clientId    = client?.id || null;
+
+
+
 
 
     // ---- Stable message EID (dedupe BEFORE any writes) ----
@@ -198,35 +212,37 @@ const roverRelay  = isRelay ? from  : null;
     const isCandidate = (keywords.length > 0) && hasDates;
 
     // If not a booking candidate, still save the inbound and push a lightweight alert
-    if (!isCandidate) {
-      const orphan = await prisma.message.create({
-        data: {
-          eid,
-          platform: 'sms',
-          threadId: from,
-          direction: 'IN',
-          channel: 'SMS',
-          fromPhone: from,
-          fromLabel: from,
-          body: String(body).slice(0, 2000),
-          isRead: false,
-          isBookingCandidate: false,
-          extractedKeywordsJson: JSON.stringify(keywords),
-          extractedDatesJson: serializeRange(null)
-        }
-      });
-      await sendPushAll({ title: '📩 New message', body: body.slice(0, 120), url: '/' });
-      return res.json({ ok: true, skipped: true, reason: 'not_booking_candidate', messageId: orphan.id, eid });
+if (!isCandidate) {
+  const orphan = await prisma.message.create({
+    data: {
+      eid,
+      platform: 'sms',
+      threadId: from,
+      direction: 'IN',
+      channel: 'SMS',
+      fromPhone: from,
+      fromLabel: from,
+      body: String(body).slice(0, 2000),
+      isRead: false,
+      isBookingCandidate: false,
+      extractedKeywordsJson: JSON.stringify(keywords),
+      extractedDatesJson: serializeRange(null)
     }
+  });
+  await sendPushAll({ title: '📩 New message', body: body.slice(0, 120), url: '/' });
+  return res.json({ ok: true, skipped: true, reason: 'not_booking_candidate', messageId: orphan.id, eid });
+}
+
 
     // ---- Find recent booking for this number (last 30 days, any status) ----
 let booking = await prisma.booking.findFirst({
   where: {
-    ...(isRelay ? { roverRelay: from } : { clientPhone: from }),
+    ...(isPrivate ? { clientPhone: from } : { roverRelay: from }),
     createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
   },
   orderBy: { createdAt: 'desc' }
 });
+
 
 
 
@@ -235,27 +251,25 @@ let booking = await prisma.booking.findFirst({
     const endAt   = range?.endAt   || new Date(startAt.getTime() + 60 * 60 * 1000);
 
     // Create/find Client only for private numbers (skip Rover relay)
-let clientId = null;
-if (!isRelay && clientPhone) {
-  clientId = (await ensureClientForPrivate({ phone: clientPhone, name: from }))?.id || null;
-}
+
 
 
     if (!booking || booking.status === 'CANCELED') {
       // Create a fresh PENDING booking instead of resurrecting canceled threads
 booking = await prisma.booking.create({
   data: {
-    source: 'SMS',
+    source: isPrivate ? 'SMS' : 'Rover',
     clientName: from,
-    clientPhone,           // private phone or null
-    roverRelay,            // rover relay or null
+    clientPhone,
+    roverRelay,
     serviceType: svc,
     startAt, endAt,
     status: 'PENDING',
     notes: 'Created from SMS (filtered booking candidate)',
-    clientId               // only set for private numbers
+    clientId
   }
 });
+
 
 
     } else {
@@ -280,19 +294,18 @@ booking = await prisma.booking.create({
 
       // Backfill clientId later if we now know it's a private number
 if (!booking.clientId && clientId) {
-  await prisma.booking.update({
-    where: { id: booking.id },
-    data: { clientId }
-  });
+  await prisma.booking.update({ where: { id: booking.id }, data: { clientId } });
 }
+
+
 
     }
 
     // --- optional auto-confirm for trusted clients (private numbers only) ---
 try {
-  if (!isRelay && booking?.clientId && booking.status === 'PENDING') {
-    const client = await prisma.client.findUnique({ where: { id: booking.clientId }, select: { trusted: true } });
-    if (client?.trusted) {
+  if (isPrivate && booking?.clientId && booking.status === 'PENDING') {
+    const c = await prisma.client.findUnique({ where: { id: booking.clientId }, select: { trusted: true } });
+    if (c?.trusted) {
       booking = await prisma.booking.update({
         where: { id: booking.id },
         data: { status: 'CONFIRMED', notes: (booking.notes || '') + ' (auto-confirmed: trusted client)' }
@@ -302,6 +315,7 @@ try {
 } catch (e) {
   console.warn('autoconfirm check failed', e?.message || e);
 }
+
 
 
     // ---- Create the inbound message, linked to the booking ----
