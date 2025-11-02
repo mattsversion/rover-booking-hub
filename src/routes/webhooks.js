@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 
 export const webhooks = express.Router();
 
-// ----- PWA push wiring (uses the same env as server.js) -----
+// ---------- Web Push wiring (same env as server.js) ----------
 const VAPID_PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 const VAPID_SUBJECT     = process.env.VAPID_SUBJECT || 'mailto:you@example.com';
@@ -18,7 +18,7 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 }
 
-// subscriptions file (same pattern as in server.js)
+// Persisted subscriptions (JSON file; db table is fine too)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const SUBS_FILE  = path.join(__dirname, '../../storage/push-subs.json');
@@ -51,6 +51,7 @@ webhooks.get('/ping', (_req, res) => {
   res.json({ ok: true, ts: Date.now() });
 });
 
+// --------- Booking intent heuristics ----------
 const KEYWORDS = [
   'book','booking','reserve','reservation',
   'rover','sitter','sitting','board','boarding',
@@ -70,17 +71,57 @@ function findKeywords(text) {
   return [...new Set(hits)];
 }
 
-function parseDates(text) {
+// ---- robust date extraction ----
+function parseDatesAll(text) {
   if (!text) return [];
   const ref = new Date();
   const results = chrono.parse(text, ref, { forwardDate: true });
-  return results
-    .map(r => ({
-      start: r.start?.date() ?? null,
-      end:   r.end?.date()   ?? r.start?.date() ?? null,
-      text:  r.text
-    }))
-    .filter(d => d.start);
+  const spans = [];
+
+  for (const r of results) {
+    const start = r.start?.date?.() ?? null;
+    const end   = r.end?.date?.()   ?? null;
+    if (start) spans.push({ start, end: end || null, text: r.text || '' });
+  }
+
+  // explicit MM/DD/YYYY ... MM/DD/YYYY
+  const md = /(\b\d{1,2}\/\d{1,2}\/\d{2,4}\b)[^\d]+(\b\d{1,2}\/\d{1,2}\/\d{2,4}\b)/i.exec(text);
+  if (md) {
+    const s = new Date(md[1]); const e = new Date(md[2]);
+    if (!isNaN(s) && !isNaN(e)) spans.push({ start: s, end: e, text: md[0] });
+  }
+
+  // “Nov 07, 2025 … Nov 11, 2025”
+  const wd = /([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}).+?([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})/i.exec(text);
+  if (wd) {
+    const s = new Date(wd[1].replace(/,/, '')); const e = new Date(wd[2].replace(/,/, ''));
+    if (!isNaN(s) && !isNaN(e)) spans.push({ start: s, end: e, text: wd[0] });
+  }
+
+  return spans.filter(d => d.start && !isNaN(d.start.valueOf()));
+}
+
+// take earliest start + latest end across all matches; default time to 5pm if date-only
+function pickDateRange(text) {
+  const spans = parseDatesAll(text);
+  if (!spans.length) return null;
+
+  const points = [];
+  for (const s of spans) { points.push(new Date(s.start)); if (s.end) points.push(new Date(s.end)); }
+  points.sort((a,b)=>a-b);
+
+  const start = points[0];
+  const end   = points[points.length - 1] || points[0];
+
+  const startAt = new Date(start);
+  const endAt   = new Date(end);
+
+  // If the text looked like date-only (no time), pin to 5:00 PM for nicer UI defaults
+  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}\b|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}\b/i.test(text)) {
+    startAt.setHours(17,0,0,0);
+    endAt.setHours(17,0,0,0);
+  }
+  return { startAt, endAt, text };
 }
 
 function classifyService(text='') {
@@ -93,13 +134,17 @@ function classifyService(text='') {
   return 'Unspecified';
 }
 
-function datesToSerializable(dates) {
-  return dates.map(d => ({
-    startISO: d.start ? new Date(d.start).toISOString() : null,
-    endISO:   d.end   ? new Date(d.end).toISOString()   : null,
-    text: d.text || ''
-  }));
+// helper: serialize a single range into the JSON column
+function serializeRange(range) {
+  if (!range) return '[]';
+  return JSON.stringify([{
+    startISO: range.startAt.toISOString(),
+    endISO:   range.endAt.toISOString(),
+    text:     range.text || ''
+  }]);
 }
+
+// ------------------------------------------------------------
 
 webhooks.post('/sms-forward', async (req, res) => {
   try {
@@ -124,7 +169,7 @@ webhooks.post('/sms-forward', async (req, res) => {
 
     const receivedAt = new Date(Number(timestamp) || Date.now());
 
-    // ---- Build stable message EID and de-dupe BEFORE doing anything else ----
+    // ---- Stable message EID (dedupe BEFORE any writes) ----
     const eid = buildEID({
       platform: 'sms',
       threadId: from,
@@ -137,12 +182,14 @@ webhooks.post('/sms-forward', async (req, res) => {
       return res.json({ ok: true, deduped: true, bookingId: already.bookingId || null, eid });
     }
 
-    // ---- FILTERING (keywords + dates) ----
+    // ---- Intent / dates ----
     const keywords = findKeywords(body);
-    const dates    = parseDates(body);
-    const isCandidate = (keywords.length > 0) && (dates.length > 0);
+    const range    = pickDateRange(body);
+    const hasDates = !!range;
+    const isCandidate = (keywords.length > 0) && hasDates;
+
+    // If not a booking candidate, still save the inbound and push a lightweight alert
     if (!isCandidate) {
-      // still record the inbound message, but mark not a candidate
       const orphan = await prisma.message.create({
         data: {
           eid,
@@ -156,15 +203,14 @@ webhooks.post('/sms-forward', async (req, res) => {
           isRead: false,
           isBookingCandidate: false,
           extractedKeywordsJson: JSON.stringify(keywords),
-          extractedDatesJson: JSON.stringify(datesToSerializable(dates))
+          extractedDatesJson: serializeRange(null)
         }
       });
-      // fire a lightweight push too
       await sendPushAll({ title: '📩 New message', body: body.slice(0, 120), url: '/' });
       return res.json({ ok: true, skipped: true, reason: 'not_booking_candidate', messageId: orphan.id, eid });
     }
 
-    // ---- Find a recent booking for this number (any status) in last 30 days ----
+    // ---- Find recent booking for this number (last 30 days, any status) ----
     let booking = await prisma.booking.findFirst({
       where: {
         OR: [{ clientPhone: from }, { roverRelay: from }],
@@ -174,10 +220,11 @@ webhooks.post('/sms-forward', async (req, res) => {
     });
 
     const svc     = classifyService(body);
-    const startAt = dates[0]?.start || receivedAt;
-    const endAt   = dates[0]?.end   || new Date(startAt.getTime() + 60 * 60 * 1000);
+    const startAt = range?.startAt || receivedAt;
+    const endAt   = range?.endAt   || new Date(startAt.getTime() + 60 * 60 * 1000);
 
-    if (!booking) {
+    if (!booking || booking.status === 'CANCELED') {
+      // Create a fresh PENDING booking instead of resurrecting canceled threads
       booking = await prisma.booking.create({
         data: {
           source: 'SMS',
@@ -191,21 +238,27 @@ webhooks.post('/sms-forward', async (req, res) => {
         }
       });
     } else {
-      // If booking was canceled, DO NOT resurrect it.
-      if (booking.status === 'CANCELED') {
-        booking = null;
-      } else {
-        // If service was unknown, set it and refresh dates from the new message
-        if ((booking.serviceType || 'Unspecified') === 'Unspecified' && svc !== 'Unspecified') {
-          await prisma.booking.update({
-            where: { id: booking.id },
-            data: { serviceType: svc, startAt, endAt }
-          });
-        }
+      // Enrich the existing booking:
+      //  - fill missing service type
+      //  - if dates changed and we still are pending, refresh them from the latest message
+      const patch = {};
+      if ((booking.serviceType || 'Unspecified') === 'Unspecified' && svc !== 'Unspecified') {
+        patch.serviceType = svc;
+      }
+      const shouldRefreshDates =
+        booking.status === 'PENDING' && hasDates &&
+        (Math.abs(new Date(booking.startAt) - startAt) > 60 * 1000 ||
+         Math.abs(new Date(booking.endAt)   - endAt)   > 60 * 1000);
+      if (shouldRefreshDates) {
+        patch.startAt = startAt;
+        patch.endAt   = endAt;
+      }
+      if (Object.keys(patch).length) {
+        booking = await prisma.booking.update({ where: { id: booking.id }, data: patch });
       }
     }
 
-    // ---- Create the inbound message (now that we know booking/null) ----
+    // ---- Create the inbound message, linked to the booking ----
     await prisma.message.create({
       data: {
         eid,
@@ -220,13 +273,12 @@ webhooks.post('/sms-forward', async (req, res) => {
         isRead: false,
         isBookingCandidate: true,
         extractedKeywordsJson: JSON.stringify(keywords),
-        extractedDatesJson: JSON.stringify(datesToSerializable(dates)),
-        bookingId: booking ? booking.id : null   // <-- keep null if last was canceled
+        extractedDatesJson: serializeRange(range),
+        bookingId: booking.id
       }
     });
 
-
-    // ---- Push notify devices (PWA) ----
+    // ---- Push notify devices ----
     await sendPushAll({
       title: '📩 New booking message',
       body: `${from}: ${body.slice(0, 100)}`,
