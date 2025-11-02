@@ -12,6 +12,21 @@
 
 <h2 style="margin-top:0;">Inbox</h2>
 
+<form action="/admin/seed-demo" method="post" style="display:inline-block;margin-right:8px;">
+  <button class="ghost" type="submit">Seed demo data</button>
+</form>
+<form action="/admin/clear-all" method="post" style="display:inline-block;">
+  <button class="ghost" type="submit">Clear ALL</button>
+</form>
+<a class="ghost" href="/debug/counts" target="_blank">Counts</a>
+<a class="ghost" href="/analytics">Analytics</a>
+
+<form action="/admin/maintenance/run" method="post" style="display:inline;">
+  <button class="ghost" type="submit">Run Maintenance</button>
+</form>
+
+
+
 <div class="tabs">
   <div class="segmented" role="tablist" aria-label="Inbox filters">
     <button class="<%= (tab||'unread')==='unread' ? 'active' : '' %>" data-tab="unread" role="tab" aria-selected="<%= (tab||'unread')==='unread' %>">
@@ -24,6 +39,9 @@
       Booked (<%= counts.booked %>)
     </button>
   </div>
+
+  <a class="ghost" href="/analytics">Analytics</a>
+
 
   <div style="margin-left:auto; display:flex; gap:10px; flex-wrap:wrap;">
     <a class="ghost" href="/exports/confirmed" target="_blank">Preview Confirmed</a>

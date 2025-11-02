@@ -59,6 +59,8 @@ app.get('/clients', async (_req, res) => {
   res.render('clients', { clients, stats });
 });
 
+
+
 app.post('/admin/backfill-clients', async (_req, res) => {
   const rows = await prisma.booking.findMany({
     where: { clientPhone: { not: null }, OR: [{ roverRelay: null }, { roverRelay: '' }] },
@@ -226,6 +228,35 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 const SUBS_FILE   = path.join(STORAGE_DIR, 'push-subs.json');
 async function loadSubs(){ try { return JSON.parse(await fs.readFile(SUBS_FILE,'utf8')); } catch { return []; } }
 async function saveSubs(subs){ await fs.mkdir(STORAGE_DIR,{recursive:true}); await fs.writeFile(SUBS_FILE, JSON.stringify(subs,null,2),'utf8'); }
+
+async function runMaintenance() {
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  // Auto-archive: anything that ended >7 days ago and isn't archived yet
+  const arch = await prisma.booking.updateMany({
+    where: {
+      endAt: { lt: sevenDaysAgo },
+      status: { in: ['PENDING', 'CONFIRMED', 'CANCELED'] }
+    },
+    data: { status: 'ARCHIVED' }
+  });
+
+  // Optional: tidy messages for archived bookings (mark unread IN as read)
+  const archivedIds = await prisma.booking.findMany({
+    where: { status: 'ARCHIVED', updatedAt: { gte: new Date(now.getTime() - 60 * 60 * 1000) } }, // only recent ones
+    select: { id: true }
+  });
+  if (archivedIds.length) {
+    await prisma.message.updateMany({
+      where: { bookingId: { in: archivedIds.map(x => x.id) }, direction: 'IN', isRead: false },
+      data: { isRead: true }
+    });
+  }
+
+  console.log('maintenance', { autoArchived: arch.count });
+}
+
 
 // Save a subscription
 app.post('/push/subscribe', express.json(), async (req, res) => {
@@ -868,11 +899,18 @@ app.post('/admin/clear-all', async (_req, res) => {
   res.redirect('/');
 });
 
-
-
+app.post('/admin/maintenance/run', async (_req, res) => {
+  await runMaintenance();
+  res.redirect('/');
+});
 
 const port = process.env.PORT || 3000;
 app.listen(port, '0.0.0.0', () => console.log(`Listening on http://localhost:${port}`));
+
+// run once on boot, then every 6 hours
+runMaintenance().catch(()=>{});
+setInterval(() => runMaintenance().catch(()=>{}), 6 * 60 * 60 * 1000);
+
 
 /* ===== OAuth (Calendar) ===== */
 app.get('/api/auth/google/start', (_req, res) => {

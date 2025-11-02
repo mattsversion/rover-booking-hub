@@ -288,6 +288,22 @@ if (!booking.clientId && clientId) {
 
     }
 
+    // --- optional auto-confirm for trusted clients (private numbers only) ---
+try {
+  if (!isRelay && booking?.clientId && booking.status === 'PENDING') {
+    const client = await prisma.client.findUnique({ where: { id: booking.clientId }, select: { trusted: true } });
+    if (client?.trusted) {
+      booking = await prisma.booking.update({
+        where: { id: booking.id },
+        data: { status: 'CONFIRMED', notes: (booking.notes || '') + ' (auto-confirmed: trusted client)' }
+      });
+    }
+  }
+} catch (e) {
+  console.warn('autoconfirm check failed', e?.message || e);
+}
+
+
     // ---- Create the inbound message, linked to the booking ----
     await prisma.message.create({
       data: {
