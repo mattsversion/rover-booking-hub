@@ -217,3 +217,83 @@ export function serializeRange(range) {
     text:     range.text || ''
   }]);
 }
+
+// ---- admin helper: reparse all inbound messages in a recent window ----
+/**
+ * Re-run keyword/date parsing on recent IN/SMS messages,
+ * refresh each message's extracted fields,
+ * and gently update attached PENDING bookings' dates/service when appropriate.
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {{days?: number, limit?: number}} opts
+ */
+export async function reparseAll(prisma, opts = {}) {
+  const days  = Number.isFinite(opts.days) ? opts.days : 180;
+  const limit = Number.isFinite(opts.limit) ? opts.limit : 5000;
+
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  const msgs = await prisma.message.findMany({
+    where: {
+      direction: 'IN',
+      channel: 'SMS',
+      createdAt: { gte: since }
+    },
+    orderBy: { createdAt: 'asc' },
+    take: limit
+  });
+
+  let updated = 0, touchedBookings = 0;
+
+  for (const m of msgs) {
+    const body = m.body || '';
+    const receivedAt = m.createdAt || new Date();
+
+    const keywords = findKeywords(body);
+    const range    = pickDateRange(body, receivedAt);
+    const isCandidate = keywords.length > 0 && !!range;
+
+    // update message extracted fields
+    await prisma.message.update({
+      where: { id: m.id },
+      data: {
+        isBookingCandidate: isCandidate,
+        extractedKeywordsJson: JSON.stringify(keywords),
+        extractedDatesJson: serializeRange(range),
+      }
+    });
+    updated++;
+
+    // best-effort: gently refresh booking dates/service if message is already linked
+    if (isCandidate && m.bookingId && range) {
+      const booking = await prisma.booking.findUnique({ where: { id: m.bookingId } });
+      if (booking && booking.status === 'PENDING') {
+        const patch = {};
+
+        // set service if still unspecified but we can infer now
+        if ((booking.serviceType || 'Unspecified') === 'Unspecified') {
+          const svc = classifyService(body);
+          if (svc !== 'Unspecified') patch.serviceType = svc;
+        }
+
+        // refresh dates if they differ by > 1 minute
+        const startAt = range.startAt;
+        const endAt   = range.endAt;
+        const diffStart = Math.abs(new Date(booking.startAt) - startAt);
+        const diffEnd   = Math.abs(new Date(booking.endAt)   - endAt);
+
+        if (Number.isFinite(diffStart) && Number.isFinite(diffEnd) && (diffStart > 60_000 || diffEnd > 60_000)) {
+          patch.startAt = startAt;
+          patch.endAt   = endAt;
+        }
+
+        if (Object.keys(patch).length) {
+          await prisma.booking.update({ where: { id: booking.id }, data: patch });
+          touchedBookings++;
+        }
+      }
+    }
+  }
+
+  return { scanned: msgs.length, updated, touchedBookings, since };
+}
