@@ -3,15 +3,13 @@ generator client {
   binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-
 model Booking {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   // enums replaced with String:
   source      String
   externalId  String?
@@ -21,18 +19,22 @@ model Booking {
   clientEmail String?
   // removed Json field (use Pet table instead):
   // pets        Json?
-  dogsCount   Int       @default(1)
+  dogsCount   Int      @default(1)
   serviceType String
   startAt     DateTime
   endAt       DateTime
   // enum replaced with String:
-  status      String    @default("PENDING")
+  status      String   @default("PENDING")
   rateCents   Int?
   notes       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  messages    Message[]
-  pets        Pet[] // renamed relation to plural for clarity
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  // NEW: relation to Client
+  clientId    String? // nullable so Rover-only bookings still work
+  client      Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  messages Message[]
+  pets     Pet[] // renamed relation to plural for clarity
 }
 
 model Message {
@@ -48,21 +50,21 @@ model Message {
   createdAt DateTime @default(now())
 
   toPhone   String?
-  isQueued  Boolean  @default(false)
+  isQueued  Boolean   @default(false)
   sentAt    DateTime?
-  failCount Int      @default(0)
+  failCount Int       @default(0)
 
-  eid                   String   @unique
+  eid                   String  @unique
   platform              String?
   threadId              String?
   providerMessageId     String?
   fromPhone             String?
-  isBookingCandidate    Boolean  @default(false)
+  isBookingCandidate    Boolean @default(false)
   extractedKeywordsJson String?
   extractedDatesJson    String?
 
   // NEW: mark inbound messages as read after opening booking
-  isRead     Boolean  @default(false)
+  isRead Boolean @default(false)
 
   updatedAt DateTime @default(now()) @updatedAt
 }
@@ -74,7 +76,6 @@ model PushSub {
   auth      String
   createdAt DateTime @default(now())
 }
-
 
 model Block {
   id        String   @id @default(cuid())
@@ -96,4 +97,18 @@ model Pet {
   photoUrl     String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  name      String?
+  notes     String?
+  isPrivate Boolean  @default(true)
+  trusted   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // back-reference (one-to-many)
+  bookings Booking[]
 }
