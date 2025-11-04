@@ -40,3 +40,5 @@ clientsRouter.post('/:id/toggle-private', async (req, res) => {
   await prisma.client.update({ where: { id: c.id }, data: { isPrivate: !c.isPrivate } });
   res.redirect('/clients');
 });
+
+export { router as clientsRouter };
