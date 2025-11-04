@@ -1,7 +1,6 @@
 // src/routes/webhooks.js
 import express from 'express';
 import { prisma } from '../db.js';
-import * as chrono from 'chrono-node';
 import { buildEID } from '../services/utils/eid.js';
 import webpush from 'web-push';
 import fs from 'fs/promises';
@@ -11,7 +10,7 @@ import { classifyMessage } from '../services/classifier.js';
 
 export const webhooks = express.Router();
 
-// ---------- Web Push wiring ----------
+/* ---------------------- Web Push wiring ---------------------- */
 const VAPID_PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 const VAPID_SUBJECT     = process.env.VAPID_SUBJECT || 'mailto:you@example.com';
@@ -19,7 +18,7 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 }
 
-// Persisted subscriptions (JSON file; db table is fine too)
+// Persisted subscriptions (JSON file; db table would be fine too)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const STORAGE_DIR = process.env.STORAGE_DIR || path.join(__dirname, '../../storage');
@@ -37,100 +36,30 @@ async function sendPushAll(payloadObj) {
   await Promise.allSettled(subs.map(s => webpush.sendNotification(s, payload)));
 }
 
-// --------- Booking intent heuristics ----------
-const KEYWORDS = [
-  'book','booking','reserve','reservation',
-  'rover','sitter','sitting','board','boarding',
-  'walk','walker','walking',
-  'drop in','drop-in','dropin',
-  'overnight','stay','doggy day care','daycare','day care',
-  'cat sit','dog sit','house sit','housesit'
-];
-function findKeywords(text) {
-  const t = (text || '').toLowerCase();
-  const hits = [];
-  for (const k of KEYWORDS) {
-    const re = new RegExp(`\\b${k.replace(/\s+/g, '\\s+')}\\b`, 'i');
-    if (re.test(t)) hits.push(k);
-  }
-  return [...new Set(hits)];
+/* ------------------- helpers / normalization ------------------ */
+function serializeSegments(extracted) {
+  // store classifier output segments verbatim for debugging/exports
+  if (!extracted?.segments?.length) return null;
+  return JSON.stringify(extracted.segments);
 }
 
-// ---- robust date extraction ----
-function parseDatesAll(text) {
-  if (!text) return [];
-  const ref = new Date();
-  const results = chrono.parse(text, ref, { forwardDate: true });
-  const spans = [];
-
-  for (const r of results) {
-    const start = r.start?.date?.() ?? null;
-    const end   = r.end?.date?.()   ?? null;
-    if (start) spans.push({ start, end: end || null, text: r.text || '' });
-  }
-
-  // explicit MM/DD/YYYY ... MM/DD/YYYY
-  const md = /(\b\d{1,2}\/\d{1,2}\/\d{2,4}\b)[^\d]+(\b\d{1,2}\/\d{1,2}\/\d{2,4}\b)/i.exec(text);
-  if (md) {
-    const s = new Date(md[1]); const e = new Date(md[2]);
-    if (!isNaN(s) && !isNaN(e)) spans.push({ start: s, end: e, text: md[0] });
-  }
-
-  // “Nov 07, 2025 … Nov 11, 2025”
-  const wd = /([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}).+?([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})/i.exec(text);
-  if (wd) {
-    const s = new Date(wd[1].replace(/,/, '')); const e = new Date(wd[2].replace(/,/, ''));
-    if (!isNaN(s) && !isNaN(e)) spans.push({ start: s, end: e, text: wd[0] });
-  }
-
-  return spans.filter(d => d.start && !isNaN(d.start.valueOf()));
+function inferServiceFromExtracted(extracted) {
+  if (!extracted?.segments?.length) return extracted?.serviceType || 'Unspecified';
+  // if any segment has endAt -> Overnight, else Daycare (matches your rule)
+  const hasRange = extracted.segments.some(s => !!s.endAt);
+  return hasRange ? 'Overnight' : 'Daycare';
 }
 
-// take earliest start + latest end across all matches; default time to 5pm if date-only
-function pickDateRange(text) {
-  const spans = parseDatesAll(text);
-  if (!spans.length) return null;
-
-  const points = [];
-  for (const s of spans) { points.push(new Date(s.start)); if (s.end) points.push(new Date(s.end)); }
-  points.sort((a,b)=>a-b);
-
-  const start = points[0];
-  const end   = points[points.length - 1] || points[0];
-
-  const startAt = new Date(start);
-  const endAt   = new Date(end);
-
-  // If the text looked like date-only (no time), pin to 5:00 PM for nicer UI defaults
-  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}\b|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}\b/i.test(text)) {
-    startAt.setHours(17,0,0,0);
-    endAt.setHours(17,0,0,0);
-  }
-  return { startAt, endAt, text };
+function firstSegmentDates(extracted) {
+  const seg = extracted?.segments?.[0];
+  if (!seg) return { startAt: null, endAt: null };
+  return {
+    startAt: seg.startAt ? new Date(seg.startAt) : null,
+    endAt: seg.endAt ? new Date(seg.endAt) : null,
+  };
 }
 
-function classifyService(text='') {
-  const t = text.toLowerCase();
-  if (/\b(overnight|board(?:ing)?|sleep(?:over)?)\b/.test(t)) return 'Overnight';
-  if (/\b(day ?care|doggy ?day ?care)\b/.test(t))            return 'Daycare';
-  if (/\b(drop[\s-]?in|check ?in)\b/.test(t))                return 'Drop-in';
-  if (/\b(walk(?:er|ing)?)\b/.test(t))                       return 'Walk';
-  if (/\b(sit(?:ter|ting)?)\b/.test(t))                      return 'Sitting';
-  return 'Unspecified';
-}
-
-// helper: serialize a single range into the JSON column
-function serializeRange(range) {
-  if (!range) return '[]';
-  return JSON.stringify([{
-    startISO: range.startAt.toISOString(),
-    endISO:   range.endAt.toISOString(),
-    text:     range.text || ''
-  }]);
-}
-
-// ------------------------------------------------------------
-// Plumbing for flexible body formats (Tasker/raw/form/json)
+/* ------------------ flexible body formats -------------------- */
 webhooks.use(
   '/sms-forward',
   express.urlencoded({ extended: true }),
@@ -145,7 +74,7 @@ webhooks.get('/ping', (_req, res) => {
   res.json({ ok: true, ts: Date.now() });
 });
 
-// ------------------------------------------------------------
+/* ------------------- inbound SMS forwarder ------------------- */
 webhooks.post('/sms-forward', async (req, res) => {
   try {
     const token = req.query.token;
@@ -153,7 +82,7 @@ webhooks.post('/sms-forward', async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // --- Parse payload (json / form / raw / query) ---
+    // Parse payload (json / form / raw / query)
     let from, body, timestamp;
     if (req.is('application/json') && req.body && typeof req.body === 'object') {
       ({ from, body, timestamp } = req.body);
@@ -169,7 +98,7 @@ webhooks.post('/sms-forward', async (req, res) => {
 
     const receivedAt = new Date(Number(timestamp) || Date.now());
 
-    // ---- Stable message EID (dedupe BEFORE any writes) ----
+    // Stable message EID (dedupe BEFORE any writes)
     const eid = buildEID({
       platform: 'sms',
       threadId: from,
@@ -182,69 +111,51 @@ webhooks.post('/sms-forward', async (req, res) => {
       return res.json({ ok: true, deduped: true, bookingId: already.bookingId || null, eid });
     }
 
-    // ---- Optional AI classification (now INSIDE the handler) ----
-    let classifyLabel = null, classifyScore = null, extractedJson = null;
+    // Strict classification (regex-first in classifier.js)
+    let classifyLabel = null, classifyScore = null, extracted = null, extractedJson = null;
     try {
-      const { label, score, extracted } = await classifyMessage(body);
-      classifyLabel = label;
-      classifyScore = score;
+      const out = await classifyMessage(body);
+      classifyLabel = out?.label || null;
+      classifyScore = out?.score ?? null;
+      extracted = out?.extracted || null;
       extractedJson = extracted ? JSON.stringify(extracted) : null;
     } catch {
-      // classifier optional; ignore failures
+      // classifier optional; proceed with no candidate
     }
 
-    // ---- Heuristics (keywords + dates) ----
-    const keywords = findKeywords(body);
-    const range    = pickDateRange(body);
-    const hasDates = !!range;
-    const isCandidate = (keywords.length > 0) && hasDates;
+    const isCandidate = classifyLabel === 'BOOKING_REQUEST';
 
-    // ---- Find recent booking for this number (last 30 days, any status) ----
+    // Try to find a recent booking thread for this number (last 60d)
     let booking = await prisma.booking.findFirst({
       where: {
         OR: [{ clientPhone: from }, { roverRelay: from }],
-        createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+        createdAt: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) }
       },
       orderBy: { createdAt: 'desc' }
     });
 
-    const svc     = classifyService(body);
-    const startAt = range?.startAt || receivedAt;
-    const endAt   = range?.endAt   || new Date(startAt.getTime() + 60 * 60 * 1000);
+    // If candidate and no booking exists -> create one
+    if (isCandidate && !booking) {
+      const serviceType = inferServiceFromExtracted(extracted);
+      const { startAt, endAt } = firstSegmentDates(extracted);
 
-    if (!booking || booking.status === 'CANCELED') {
       booking = await prisma.booking.create({
         data: {
           source: 'SMS',
-          clientName: from,
+          clientName: from,           // you can improve with your own name heuristics later
           clientPhone: from,
-          roverRelay: from,
-          serviceType: svc,
-          startAt, endAt,
+          roverRelay: null,
+          serviceType: serviceType || 'Unspecified',
+          startAt: startAt || receivedAt,
+          endAt: endAt || (startAt || receivedAt),
           status: 'PENDING',
-          notes: 'Created from SMS (filtered booking candidate)'
+          notes: 'Created from SMS (booking candidate)'
         }
       });
-    } else {
-      const patch = {};
-      if ((booking.serviceType || 'Unspecified') === 'Unspecified' && svc !== 'Unspecified') {
-        patch.serviceType = svc;
-      }
-      const shouldRefreshDates =
-        booking.status === 'PENDING' && hasDates &&
-        (Math.abs(new Date(booking.startAt) - startAt) > 60 * 1000 ||
-         Math.abs(new Date(booking.endAt)   - endAt)   > 60 * 1000);
-      if (shouldRefreshDates) {
-        patch.startAt = startAt;
-        patch.endAt   = endAt;
-      }
-      if (Object.keys(patch).length) {
-        booking = await prisma.booking.update({ where: { id: booking.id }, data: patch });
-      }
     }
 
-    // ---- Create the inbound message, linked to the booking ----
-    await prisma.message.create({
+    // Create the inbound message
+    const msg = await prisma.message.create({
       data: {
         eid,
         platform: 'sms',
@@ -257,23 +168,52 @@ webhooks.post('/sms-forward', async (req, res) => {
         body: String(body).slice(0, 2000),
         isRead: false,
         isBookingCandidate: isCandidate,
-        extractedKeywordsJson: JSON.stringify(keywords),
-        extractedDatesJson: serializeRange(range),
+        extractedKeywordsJson: null, // no longer using heuristic keywords
+        extractedDatesJson: serializeSegments(extracted),
         classifyLabel,
         classifyScore,
         extractedJson,
-        bookingId: booking.id
+        bookingId: booking?.id || null // attach if a booking exists
       }
     });
 
-    // ---- Push notify devices ----
+    // If we created/found a booking and this was a candidate, we may want to refresh its dates/service
+    if (booking && isCandidate && extracted?.segments?.length) {
+      const patch = {};
+      const svc = inferServiceFromExtracted(extracted);
+      if (svc && (booking.serviceType || 'Unspecified') === 'Unspecified') {
+        patch.serviceType = svc;
+      }
+      const { startAt, endAt } = firstSegmentDates(extracted);
+      if (startAt && endAt && booking.status === 'PENDING') {
+        // only update if they differ meaningfully
+        const diffStart = booking.startAt ? Math.abs(new Date(booking.startAt) - startAt) : Infinity;
+        const diffEnd   = booking.endAt   ? Math.abs(new Date(booking.endAt)   - endAt)   : Infinity;
+        if (diffStart > 60 * 1000 || diffEnd > 60 * 1000) {
+          patch.startAt = startAt;
+          patch.endAt = endAt;
+        }
+      }
+      if (Object.keys(patch).length) {
+        await prisma.booking.update({ where: { id: booking.id }, data: patch });
+      }
+    }
+
+    // Push notify
     await sendPushAll({
       title: isCandidate ? '📩 New booking message' : '📩 New message',
       body: `${from}: ${body.slice(0, 100)}`,
-      url: isCandidate ? `/booking/${booking.id}` : '/'
+      url: (booking && isCandidate) ? `/booking/${booking.id}` : '/'
     });
 
-    return res.json({ ok: true, bookingId: booking.id, eid, serviceType: svc });
+    return res.json({
+      ok: true,
+      bookingId: booking?.id || null,
+      isCandidate,
+      eid,
+      classifyLabel,
+      classifyScore
+    });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: 'Server error' });
