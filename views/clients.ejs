@@ -1,4 +1,4 @@
-
+<!-- views/clients.ejs (clean) -->
 <div class="topbar" style="position:static">
   <div class="container" style="display:flex;justify-content:space-between;align-items:center;padding:0">
     <h1 style="margin:0">Clients</h1>
@@ -34,19 +34,18 @@
     <% } else { %>
 
       <!-- header row -->
-<div class="row" style="font-weight:600; padding:6px 0; border-bottom:1px solid var(--border);">
-  <div style="width:90px">Trusted</div>
-  <div style="flex:1 1 180px">Phone</div>
-  <div style="flex:1 1 160px">Name</div>
-  <div style="width:80px">Private</div>
-  <div style="flex:1 1 220px">Updated</div>
-  <!-- 🆕 insights headers -->
-  <div style="flex:1 1 120px">Total</div>
-  <div style="flex:1 1 180px">Last booking</div>
-  <div style="flex:1 1 100px">LTV</div>
-  <div style="width:160px"></div>
-</div>
-
+      <div class="row" style="font-weight:600; padding:6px 0; border-bottom:1px solid var(--border);">
+        <div style="width:90px">Trusted</div>
+        <div style="flex:1 1 180px">Phone</div>
+        <div style="flex:1 1 160px">Name</div>
+        <div style="width:80px">Private</div>
+        <div style="flex:1 1 220px">Updated</div>
+        <!-- insights -->
+        <div style="flex:1 1 120px">Total</div>
+        <div style="flex:1 1 180px">Last booking</div>
+        <div style="flex:1 1 100px">LTV</div>
+        <div style="width:160px"></div>
+      </div>
 
       <!-- items -->
       <div class="list" style="gap:0">
@@ -75,13 +74,12 @@
               <%= new Date(c.updatedAt).toLocaleString() %>
             </div>
 
-            <!-- 🆕 insights columns -->
-<div style="flex:1 1 120px"><%= c.insights?.totalBookings || 0 %></div>
-<div style="flex:1 1 180px">
-  <%= c.insights?.lastBookingAt ? new Date(c.insights.lastBookingAt).toLocaleDateString() : '—' %>
-</div>
-<div style="flex:1 1 100px"><%= c.insights?.ltvScore ?? '0.0' %></div>
-
+            <!-- insights -->
+            <div style="flex:1 1 120px"><%= c.insights?.totalBookings || 0 %></div>
+            <div style="flex:1 1 180px">
+              <%= c.insights?.lastBookingAt ? new Date(c.insights.lastBookingAt).toLocaleDateString() : '—' %>
+            </div>
+            <div style="flex:1 1 100px"><%= c.insights?.ltvScore ?? '0.0' %></div>
 
             <div style="width:160px" class="actions">
               <% if (c.trusted) { %>
@@ -101,116 +99,3 @@
     <% } %>
   </div>
 </div>
-=======
-<!-- views/clients.ejs -->
-<% /* uses default layout 'layout' already set in server.js */ %>
-
-=======
->>>>>>> 9e12256 (clients: match global layout + font styling)
-<div class="container">
-  <div class="topbar" style="position:static">
-=======
-<div class="topbar" style="position:static">
-  <div class="container" style="display:flex;justify-content:space-between;align-items:center;padding:0">
->>>>>>> f6f2aff (clients: add insights columns (total, last booking, LTV))
-    <h1 style="margin:0">Clients</h1>
-    <div class="actions">
-      <a class="ghost" href="/">← Back to inbox</a>
-    </div>
-  </div>
-</div>
-
-<div class="container">
-
-  <!-- Add / update -->
-  <div class="card">
-    <h2 style="margin:0 0 8px">Add or update a client</h2>
-    <form class="row" method="POST" action="/clients/add">
-      <input name="phone" type="tel" placeholder="+15551234567" required />
-      <input name="name"  type="text" placeholder="Name (optional)" />
-      <label class="row" style="gap:6px; align-items:center;">
-        <input type="checkbox" name="trusted" />
-        Trusted
-      </label>
-      <button class="btn" type="submit">Save</button>
-    </form>
-    <p class="muted">Adding here marks the number as <b>private</b> automatically.</p>
-  </div>
-
-  <!-- List -->
-  <div class="card">
-    <h2 style="margin:0 0 8px">All clients</h2>
-
-    <% if (!clients || clients.length === 0) { %>
-      <p class="muted">No clients yet.</p>
-    <% } else { %>
-
-      <!-- header row -->
-<div class="row" style="font-weight:600; padding:6px 0; border-bottom:1px solid var(--border);">
-  <div style="width:90px">Trusted</div>
-  <div style="flex:1 1 180px">Phone</div>
-  <div style="flex:1 1 160px">Name</div>
-  <div style="width:80px">Private</div>
-  <div style="flex:1 1 220px">Updated</div>
-  <!-- 🆕 insights headers -->
-  <div style="flex:1 1 120px">Total</div>
-  <div style="flex:1 1 180px">Last booking</div>
-  <div style="flex:1 1 100px">LTV</div>
-  <div style="width:160px"></div>
-</div>
-
-
-      <!-- items -->
-      <div class="list" style="gap:0">
-        <% clients.forEach(c => { %>
-          <div class="row" style="padding:10px 0; border-bottom:1px solid var(--border); align-items:center;">
-            <div style="width:90px">
-              <% if (c.trusted) { %>
-                <span class="muted">✅ yes</span>
-              <% } else { %>
-                <span class="muted">—</span>
-              <% } %>
-            </div>
-
-            <div style="flex:1 1 180px"><%= c.phone %></div>
-            <div style="flex:1 1 160px"><%= c.name || '—' %></div>
-
-            <div style="width:80px">
-              <% if (c.isPrivate) { %>
-                <span class="muted">✅ yes</span>
-              <% } else { %>
-                <span class="muted">—</span>
-              <% } %>
-            </div>
-
-            <div class="muted" style="flex:1 1 220px">
-              <%= new Date(c.updatedAt).toLocaleString() %>
-            </div>
-
-            <!-- 🆕 insights columns -->
-<div style="flex:1 1 120px"><%= c.insights?.totalBookings || 0 %></div>
-<div style="flex:1 1 180px">
-  <%= c.insights?.lastBookingAt ? new Date(c.insights.lastBookingAt).toLocaleDateString() : '—' %>
-</div>
-<div style="flex:1 1 100px"><%= c.insights?.ltvScore ?? '0.0' %></div>
-
-
-            <div style="width:160px" class="actions">
-              <% if (c.trusted) { %>
-                <form method="POST" action="/clients/<%= c.id %>/trusted?on=0" style="display:inline">
-                  <button class="ghost" type="submit">Untrust</button>
-                </form>
-              <% } else { %>
-                <form method="POST" action="/clients/<%= c.id %>/trusted?on=1" style="display:inline">
-                  <button class="btn" type="submit">Trust</button>
-                </form>
-              <% } %>
-            </div>
-          </div>
-        <% }) %>
-      </div>
-
-    <% } %>
-  </div>
-</div>
->>>>>>> 794ce02 (merge: resolve clients route conflict; clients view uses global layout + trust toggle)
