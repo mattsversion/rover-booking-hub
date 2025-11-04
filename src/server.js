@@ -38,7 +38,6 @@ app.use((req, _res, next) => {
 });
 
 app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
-app.use('/clients', clients);
 app.use('/webhooks', webhooks);
 app.use('/api', api);
 app.use('/clients', clientsRouter);
