@@ -15,7 +15,7 @@ import webpush from 'web-push';
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import { clientsRouter } from './routes/clients.js';
-import { clients } from './routes/clients.js';
+import { clientsRouter } from './routes/clients.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
