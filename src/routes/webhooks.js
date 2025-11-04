@@ -8,13 +8,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { classifyMessage } from '../services/classifier.js';
 
-// use shared intake helpers (do NOT re-declare them here)
+// intake helpers (centralized)
 import {
   findKeywords,
-  pickDateRange,
   classifyService,
   extractPetNames,
-  serializeRange,
+  serializeRange,      // still used for backward compatibility if needed
+  parseSegments,       // NEW: multi-segment parser
+  extractRoverMeta     // NEW: owner/pet/age/weight (Rover-style)
 } from '../services/intake.js';
 
 export const webhooks = express.Router();
@@ -60,7 +61,7 @@ webhooks.get('/ping', (_req, res) => {
   res.json({ ok: true, ts: Date.now() });
 });
 
-// main intake
+// -------------------- Main intake --------------------
 webhooks.post('/sms-forward', async (req, res) => {
   try {
     const token = req.query.token;
@@ -84,7 +85,7 @@ webhooks.post('/sms-forward', async (req, res) => {
 
     const receivedAt = new Date(Number(timestamp) || Date.now());
 
-    // EID dedupe
+    // EID dedupe (BEFORE writes)
     const eid = buildEID({
       platform: 'sms',
       threadId: from,
@@ -103,85 +104,112 @@ webhooks.post('/sms-forward', async (req, res) => {
       classifyLabel = label;
       classifyScore = score;
       extractedJson = extracted ? JSON.stringify(extracted) : null;
-    } catch {}
+    } catch {
+      // best-effort; ignore failures
+    }
 
-    // Heuristics (keywords + real date)
-    const keywords = findKeywords(body);
-    const range    = pickDateRange(body, receivedAt);
-    const hasDates = !!range;
+    // ---- Heuristics (keywords + segments) ----
+    const keywords   = findKeywords(body);
+    const svcGuess   = classifyService(body);
+    const segments   = parseSegments(body, receivedAt); // [{startAt,endAt,serviceHint}, ...]
+    const roverMeta  = extractRoverMeta(body);          // {ownerName, petName, petAgeMonths, petWeightLbs}
 
-    // strict gate
-    const isCandidate = (keywords.length > 0) && hasDates;
+    // strict gate: must have keywords AND at least one segment AND not purely "Walk"
+    const isWalkOnly = svcGuess === 'Walk';
+    const isCandidate = (keywords.length > 0) && segments.length > 0 && !isWalkOnly;
 
-    // Only attach/create a booking when candidate
+    // We will attach the inbound message to the FIRST booking we create/patch (if any)
     let bookingId = null;
 
     if (isCandidate) {
-      let booking = await prisma.booking.findFirst({
-        where: {
-          OR: [{ clientPhone: from }, { roverRelay: from }],
-          createdAt: { gte: new Date(Date.now() - 30 * 24*60*60*1000) }
-        },
-        orderBy: { createdAt: 'desc' }
-      });
+      // one booking per segment; this handles "12-15, 12-24 to 12-30" as two boxes
+      for (let idx = 0; idx < segments.length; idx++) {
+        const seg = segments[idx];
+        const inferredSvc = svcGuess !== 'Unspecified' ? svcGuess : (seg.serviceHint || 'Unspecified');
 
-      const svc = classifyService(body);
-      const startAt = range.startAt;
-      const endAt   = range.endAt;
-
-      if (!booking || booking.status === 'CANCELED') {
-        booking = await prisma.booking.create({
-          data: {
-            source: 'SMS',
-            clientName: from,
-            clientPhone: from,
-            roverRelay: from,
-            serviceType: svc,
-            startAt, endAt,
-            status: 'PENDING',
-            notes: 'Created from SMS (filtered booking candidate)'
-          }
+        // try to reuse a recent thread booking near this start date (±2 days)
+        let booking = await prisma.booking.findFirst({
+          where: {
+            OR: [{ clientPhone: from }, { roverRelay: from }],
+            AND: [
+              { startAt: { gte: new Date(seg.startAt.getTime() - 2*24*60*60*1000) } },
+              { startAt: { lte: new Date(seg.startAt.getTime() + 2*24*60*60*1000) } }
+            ]
+          },
+          orderBy: { createdAt: 'desc' }
         });
-      } else {
-        const patch = {};
-        if ((booking.serviceType || 'Unspecified') === 'Unspecified' && svc !== 'Unspecified') {
-          patch.serviceType = svc;
-        }
-        const shouldRefreshDates =
-          booking.status === 'PENDING' &&
-          (Math.abs(new Date(booking.startAt) - startAt) > 60 * 1000 ||
-           Math.abs(new Date(booking.endAt)   - endAt)   > 60 * 1000);
-        if (shouldRefreshDates) {
-          patch.startAt = startAt;
-          patch.endAt   = endAt;
-        }
-        if (Object.keys(patch).length) {
-          booking = await prisma.booking.update({ where: { id: booking.id }, data: patch });
-        }
-      }
 
-      bookingId = booking.id;
-
-      // Pet best-effort attach (simple, schema-safe)
-      try {
-        const pets = extractPetNames(body);
-        for (const name of pets) {
-          const existing = await prisma.pet.findFirst({
-            where: { name, bookings: { some: { id: booking.id } } }
-          }).catch(()=>null);
-
-          if (!existing) {
-            const pet = await prisma.pet.create({ data: { name } });
-            await prisma.booking.update({
-              where: { id: booking.id },
-              data: { pets: { connect: { id: pet.id } } }
-            });
+        if (!booking || booking.status === 'CANCELED') {
+          booking = await prisma.booking.create({
+            data: {
+              source: body.includes('r.rover.com') ? 'Rover' : 'SMS',
+              clientName: roverMeta.ownerName || from,
+              clientPhone: from,
+              roverRelay: from.includes('r.rover.com') ? from : null,
+              serviceType: inferredSvc,
+              startAt: seg.startAt,
+              endAt: seg.endAt,
+              status: 'PENDING',
+              notes: 'Created from SMS (filtered booking candidate)'
+            }
+          });
+        } else {
+          const patch = {};
+          if ((booking.serviceType || 'Unspecified') === 'Unspecified' && inferredSvc !== 'Unspecified') {
+            patch.serviceType = inferredSvc;
+          }
+          const needDates =
+            Math.abs(new Date(booking.startAt) - seg.startAt) > 60 * 1000 ||
+            Math.abs(new Date(booking.endAt)   - seg.endAt)   > 60 * 1000;
+          if (needDates) {
+            patch.startAt = seg.startAt;
+            patch.endAt   = seg.endAt;
+          }
+          if (Object.keys(patch).length) {
+            booking = await prisma.booking.update({ where: { id: booking.id }, data: patch });
           }
         }
-      } catch {}
+
+        // attach pet if we can infer it (Rover or phrases)
+        try {
+          const petCandidates = new Set([
+            ...(extractPetNames(body) || []),
+            roverMeta.petName || null
+          ].filter(Boolean));
+
+          for (const name of petCandidates) {
+            const exists = await prisma.pet.findFirst({
+              where: { name, bookings: { some: { id: booking.id } } }
+            }).catch(()=>null);
+
+            if (!exists) {
+              const pet = await prisma.pet.create({
+                data: {
+                  name,
+                  ageMonths: roverMeta.petAgeMonths || null,
+                  weightLbs: roverMeta.petWeightLbs || null
+                }
+              });
+              await prisma.booking.update({
+                where: { id: booking.id },
+                data: { pets: { connect: { id: pet.id } } }
+              });
+            }
+          }
+        } catch {}
+
+        if (idx === 0) bookingId = booking.id;
+      }
     }
 
     // Store the inbound message (bookingId may be null)
+    const extractedDatesJson = JSON.stringify(
+      segments.map(s => ({
+        startISO: s.startAt.toISOString(),
+        endISO:   s.endAt.toISOString()
+      }))
+    );
+
     await prisma.message.create({
       data: {
         eid,
@@ -191,12 +219,12 @@ webhooks.post('/sms-forward', async (req, res) => {
         fromPhone: from,
         direction: 'IN',
         channel: 'SMS',
-        fromLabel: from,
+        fromLabel: roverMeta.ownerName || from,
         body: String(body).slice(0, 2000),
         isRead: false,
         isBookingCandidate: isCandidate,
         extractedKeywordsJson: JSON.stringify(keywords),
-        extractedDatesJson: serializeRange(range),
+        extractedDatesJson,
         classifyLabel,
         classifyScore,
         extractedJson,
