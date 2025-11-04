@@ -1,10 +1,9 @@
-// src/routes/clients.js
 import express from 'express';
 import { prisma } from '../db.js';
 
-export const clientsRouter = express.Router(); // <- named export matches server.js
+export const clientsRouter = express.Router(); // named export
 
-// list private (non-Rover) clients
+// list
 clientsRouter.get('/', async (_req, res) => {
   const rows = await prisma.client.findMany({
     where: { isPrivate: true },
@@ -13,7 +12,7 @@ clientsRouter.get('/', async (_req, res) => {
   res.render('clients', { clients: rows });
 });
 
-// add/update a client from the form
+// add/update via form
 clientsRouter.post('/upsert', async (req, res) => {
   const { phone, name } = req.body;
   const isPrivate = !!req.body.isPrivate;
@@ -28,15 +27,13 @@ clientsRouter.post('/upsert', async (req, res) => {
   res.redirect('/clients');
 });
 
-// toggle trusted
+// toggles
 clientsRouter.post('/:id/toggle-trust', async (req, res) => {
   const c = await prisma.client.findUnique({ where: { id: req.params.id } });
   if (!c) return res.status(404).send('not found');
   await prisma.client.update({ where: { id: c.id }, data: { trusted: !c.trusted } });
   res.redirect('/clients');
 });
-
-// toggle private
 clientsRouter.post('/:id/toggle-private', async (req, res) => {
   const c = await prisma.client.findUnique({ where: { id: req.params.id } });
   if (!c) return res.status(404).send('not found');
@@ -44,4 +41,4 @@ clientsRouter.post('/:id/toggle-private', async (req, res) => {
   res.redirect('/clients');
 });
 
-export default clientsRouter; // optional default export
+export default clientsRouter; // optional default
