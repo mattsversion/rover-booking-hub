@@ -14,6 +14,10 @@ import puppeteer from 'puppeteer-core';
 import webpush from 'web-push';
 import fs from 'fs/promises';
 import fsSync from 'fs';
+// in src/server.js
+import { adminClassify } from './routes/admin-classify.js';
+
+
 
 
 
@@ -36,6 +40,7 @@ app.use((req, _res, next) => {
   console.log('REQ', req.method, req.url);
   next();
 });
+app.use(adminClassify);
 
 app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 app.use('/webhooks', webhooks);
