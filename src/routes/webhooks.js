@@ -8,11 +8,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { classifyMessage } from '../services/classifier.js';
-import { prisma } from '../db.js';
 
 export const webhooks = express.Router();
 
-// ---------- Web Push wiring (same env as server.js) ----------
+// ---------- Web Push wiring ----------
 const VAPID_PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 const VAPID_SUBJECT     = process.env.VAPID_SUBJECT || 'mailto:you@example.com';
@@ -26,7 +25,6 @@ const __dirname  = path.dirname(__filename);
 const STORAGE_DIR = process.env.STORAGE_DIR || path.join(__dirname, '../../storage');
 const SUBS_FILE   = path.join(STORAGE_DIR, 'push-subs.json');
 
-
 async function loadSubs() {
   try { return JSON.parse(await fs.readFile(SUBS_FILE, 'utf8')); }
   catch { return []; }
@@ -39,58 +37,6 @@ async function sendPushAll(payloadObj) {
   await Promise.allSettled(subs.map(s => webpush.sendNotification(s, payload)));
 }
 
-const { label, score, extracted } = await classifyMessage(bodyText);
-
-const msg = await prisma.message.create({
-  data: {
-    // ...existing fields you already save...
-    body: bodyText,
-    isBookingCandidate: label === 'BOOKING_REQUEST' && score >= 0.6,
-    classifyLabel: label,
-    classifyScore: score,
-    extractedJson: extracted,
-  }
-});
-
-if (label === 'BOOKING_REQUEST' && score >= 0.75 && extracted?.startAt && extracted?.endAt) {
-  const start = new Date(extracted.startAt);
-  const end   = new Date(extracted.endAt);
-  if (!Number.isNaN(start) && !Number.isNaN(end)) {
-    const created = await prisma.booking.create({
-      data: {
-        source: 'SMS-AI',
-        clientName: extracted.clientName || '—',
-        serviceType: extracted.serviceType || 'Unspecified',
-        dogsCount: extracted.dogsCount ? Number(extracted.dogsCount) : 1,
-        startAt: start,
-        endAt: end,
-        status: 'PENDING',
-        notes: 'Auto-created by AI classifier',
-        messages: { connect: { id: msg.id } }
-      }
-    });
-    // you could link bookingId back to the message if desired
-    await prisma.message.update({ where:{ id: msg.id }, data:{ bookingId: created.id } });
-  }
-}
-
-
-// ------------------------------------------------------------
-
-webhooks.use(
-  '/sms-forward',
-  express.urlencoded({ extended: true }),
-  express.text({ type: '*/*' }) // allow Tasker raw body
-);
-
-webhooks.get('/sms-forward', (_req, res) => {
-  res.send('Webhook is up. Use POST with JSON or form fields: {from, body, timestamp}.');
-});
-
-webhooks.get('/ping', (_req, res) => {
-  res.json({ ok: true, ts: Date.now() });
-});
-
 // --------- Booking intent heuristics ----------
 const KEYWORDS = [
   'book','booking','reserve','reservation',
@@ -100,7 +46,6 @@ const KEYWORDS = [
   'overnight','stay','doggy day care','daycare','day care',
   'cat sit','dog sit','house sit','housesit'
 ];
-
 function findKeywords(text) {
   const t = (text || '').toLowerCase();
   const hits = [];
@@ -110,8 +55,6 @@ function findKeywords(text) {
   }
   return [...new Set(hits)];
 }
-
-
 
 // ---- robust date extraction ----
 function parseDatesAll(text) {
@@ -187,7 +130,22 @@ function serializeRange(range) {
 }
 
 // ------------------------------------------------------------
+// Plumbing for flexible body formats (Tasker/raw/form/json)
+webhooks.use(
+  '/sms-forward',
+  express.urlencoded({ extended: true }),
+  express.text({ type: '*/*' }) // allow raw body
+);
 
+webhooks.get('/sms-forward', (_req, res) => {
+  res.send('Webhook is up. Use POST with JSON or form fields: {from, body, timestamp}.');
+});
+
+webhooks.get('/ping', (_req, res) => {
+  res.json({ ok: true, ts: Date.now() });
+});
+
+// ------------------------------------------------------------
 webhooks.post('/sms-forward', async (req, res) => {
   try {
     const token = req.query.token;
@@ -224,33 +182,22 @@ webhooks.post('/sms-forward', async (req, res) => {
       return res.json({ ok: true, deduped: true, bookingId: already.bookingId || null, eid });
     }
 
-    // ---- Intent / dates ----
+    // ---- Optional AI classification (now INSIDE the handler) ----
+    let classifyLabel = null, classifyScore = null, extractedJson = null;
+    try {
+      const { label, score, extracted } = await classifyMessage(body);
+      classifyLabel = label;
+      classifyScore = score;
+      extractedJson = extracted ? JSON.stringify(extracted) : null;
+    } catch {
+      // classifier optional; ignore failures
+    }
+
+    // ---- Heuristics (keywords + dates) ----
     const keywords = findKeywords(body);
     const range    = pickDateRange(body);
     const hasDates = !!range;
     const isCandidate = (keywords.length > 0) && hasDates;
-
-    // If not a booking candidate, still save the inbound and push a lightweight alert
-    if (!isCandidate) {
-      const orphan = await prisma.message.create({
-        data: {
-          eid,
-          platform: 'sms',
-          threadId: from,
-          direction: 'IN',
-          channel: 'SMS',
-          fromPhone: from,
-          fromLabel: from,
-          body: String(body).slice(0, 2000),
-          isRead: false,
-          isBookingCandidate: false,
-          extractedKeywordsJson: JSON.stringify(keywords),
-          extractedDatesJson: serializeRange(null)
-        }
-      });
-      await sendPushAll({ title: '📩 New message', body: body.slice(0, 120), url: '/' });
-      return res.json({ ok: true, skipped: true, reason: 'not_booking_candidate', messageId: orphan.id, eid });
-    }
 
     // ---- Find recent booking for this number (last 30 days, any status) ----
     let booking = await prisma.booking.findFirst({
@@ -266,7 +213,6 @@ webhooks.post('/sms-forward', async (req, res) => {
     const endAt   = range?.endAt   || new Date(startAt.getTime() + 60 * 60 * 1000);
 
     if (!booking || booking.status === 'CANCELED') {
-      // Create a fresh PENDING booking instead of resurrecting canceled threads
       booking = await prisma.booking.create({
         data: {
           source: 'SMS',
@@ -280,9 +226,6 @@ webhooks.post('/sms-forward', async (req, res) => {
         }
       });
     } else {
-      // Enrich the existing booking:
-      //  - fill missing service type
-      //  - if dates changed and we still are pending, refresh them from the latest message
       const patch = {};
       if ((booking.serviceType || 'Unspecified') === 'Unspecified' && svc !== 'Unspecified') {
         patch.serviceType = svc;
@@ -313,18 +256,21 @@ webhooks.post('/sms-forward', async (req, res) => {
         fromLabel: from,
         body: String(body).slice(0, 2000),
         isRead: false,
-        isBookingCandidate: true,
+        isBookingCandidate: isCandidate,
         extractedKeywordsJson: JSON.stringify(keywords),
         extractedDatesJson: serializeRange(range),
+        classifyLabel,
+        classifyScore,
+        extractedJson,
         bookingId: booking.id
       }
     });
 
     // ---- Push notify devices ----
     await sendPushAll({
-      title: '📩 New booking message',
+      title: isCandidate ? '📩 New booking message' : '📩 New message',
       body: `${from}: ${body.slice(0, 100)}`,
-      url: `/booking/${booking.id}`
+      url: isCandidate ? `/booking/${booking.id}` : '/'
     });
 
     return res.json({ ok: true, bookingId: booking.id, eid, serviceType: svc });
