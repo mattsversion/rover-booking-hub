@@ -17,6 +17,12 @@ import fsSync from 'fs';
 // in src/server.js
 import { adminClassify } from './routes/admin-classify.js';
 
+<<<<<<< HEAD
+=======
+
+
+
+>>>>>>> 0a41fd8 (WIP: clients page, analytics view, server/webhooks updates)
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -41,9 +47,12 @@ app.use(adminClassify);
 
 app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 app.use('/clients', clients);
 >>>>>>> 0206248 (clients: single router export; import + mount once; add simple trust/private UI)
+=======
+>>>>>>> 0a41fd8 (WIP: clients page, analytics view, server/webhooks updates)
 app.use('/webhooks', webhooks);
 app.use('/api', api);
 
