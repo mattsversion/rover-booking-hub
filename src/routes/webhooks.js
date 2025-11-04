@@ -7,6 +7,8 @@ import webpush from 'web-push';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { classifyMessage } from '../services/classifier.js';
+import { prisma } from '../db.js';
 
 export const webhooks = express.Router();
 
@@ -36,6 +38,42 @@ async function sendPushAll(payloadObj) {
   const payload = JSON.stringify(payloadObj);
   await Promise.allSettled(subs.map(s => webpush.sendNotification(s, payload)));
 }
+
+const { label, score, extracted } = await classifyMessage(bodyText);
+
+const msg = await prisma.message.create({
+  data: {
+    // ...existing fields you already save...
+    body: bodyText,
+    isBookingCandidate: label === 'BOOKING_REQUEST' && score >= 0.6,
+    classifyLabel: label,
+    classifyScore: score,
+    extractedJson: extracted,
+  }
+});
+
+if (label === 'BOOKING_REQUEST' && score >= 0.75 && extracted?.startAt && extracted?.endAt) {
+  const start = new Date(extracted.startAt);
+  const end   = new Date(extracted.endAt);
+  if (!Number.isNaN(start) && !Number.isNaN(end)) {
+    const created = await prisma.booking.create({
+      data: {
+        source: 'SMS-AI',
+        clientName: extracted.clientName || '—',
+        serviceType: extracted.serviceType || 'Unspecified',
+        dogsCount: extracted.dogsCount ? Number(extracted.dogsCount) : 1,
+        startAt: start,
+        endAt: end,
+        status: 'PENDING',
+        notes: 'Auto-created by AI classifier',
+        messages: { connect: { id: msg.id } }
+      }
+    });
+    // you could link bookingId back to the message if desired
+    await prisma.message.update({ where:{ id: msg.id }, data:{ bookingId: created.id } });
+  }
+}
+
 
 // ------------------------------------------------------------
 
@@ -72,6 +110,8 @@ function findKeywords(text) {
   }
   return [...new Set(hits)];
 }
+
+
 
 // ---- robust date extraction ----
 function parseDatesAll(text) {
