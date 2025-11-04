@@ -8,7 +8,7 @@
 
   <!-- Add / update -->
   <div class="card">
-    <h2 style="margin:0 0 8px">Add or update a client</h2>
+    <h2>Add or update a client</h2>
     <form class="row" method="POST" action="/clients/add">
       <input name="phone" type="tel" placeholder="+15551234567" required />
       <input name="name"  type="text" placeholder="Name (optional)" />
@@ -23,13 +23,11 @@
 
   <!-- List -->
   <div class="card">
-    <h2 style="margin:0 0 8px">All clients</h2>
+    <h2>All clients</h2>
 
     <% if (!clients || clients.length === 0) { %>
       <p class="muted">No clients yet.</p>
     <% } else { %>
-
-      <!-- header row -->
       <div class="row" style="font-weight:600; padding:6px 0; border-bottom:1px solid var(--border);">
         <div style="width:80px">Trusted</div>
         <div style="flex:1 1 180px">Phone</div>
@@ -39,32 +37,14 @@
         <div style="width:160px"></div>
       </div>
 
-      <!-- items -->
       <div class="list" style="gap:0">
         <% clients.forEach(c => { %>
           <div class="row" style="padding:10px 0; border-bottom:1px solid var(--border); align-items:center;">
-            <div style="width:80px">
-              <% if (c.trusted) { %>
-                <span class="muted">✅ yes</span>
-              <% } else { %>
-                <span class="muted">—</span>
-              <% } %>
-            </div>
-
+            <div style="width:80px"><%= c.trusted ? '✅' : '—' %></div>
             <div style="flex:1 1 180px"><%= c.phone %></div>
             <div style="flex:1 1 160px"><%= c.name || '—' %></div>
-
-            <div style="width:80px">
-              <% if (c.isPrivate) { %>
-                <span class="muted">✅ yes</span>
-              <% } else { %>
-                <span class="muted">—</span>
-              <% } %>
-            </div>
-
-            <div class="muted" style="flex:1 1 200px">
-              <%= new Date(c.updatedAt).toLocaleString() %>
-            </div>
+            <div style="width:80px"><%= c.isPrivate ? '✅' : '—' %></div>
+            <div class="muted" style="flex:1 1 200px"><%= new Date(c.updatedAt).toLocaleString() %></div>
 
             <div style="width:160px" class="actions">
               <% if (c.trusted) { %>
@@ -80,7 +60,6 @@
           </div>
         <% }) %>
       </div>
-
     <% } %>
   </div>
 </div>
