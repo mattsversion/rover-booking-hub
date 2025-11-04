@@ -1,0 +1,119 @@
+<!-- views/analytics.ejs -->
+<div class="container">
+  <div class="topbar" style="position:static">
+    <h1 style="margin:0">Analytics</h1>
+    <div class="actions">
+      <a class="ghost" href="/">← Back to inbox</a>
+      <a class="ghost" href="/exports/bookings.csv">Download CSV</a>
+    </div>
+  </div>
+
+  <!-- Date window -->
+  <div class="card">
+    <div class="row">
+      <div>
+        <div class="muted">Range</div>
+        <div style="font-weight:600">
+          <%= new Date(from).toLocaleDateString() %> – <%= new Date(to).toLocaleDateString() %>
+        </div>
+      </div>
+      <div class="muted">
+        (Change window via URL: /analytics?from=YYYY-MM-DD&to=YYYY-MM-DD)
+      </div>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="card">
+    <h2 style="margin:0 0 8px">Key metrics</h2>
+    <div class="row" style="gap:12px; align-items:stretch; flex-wrap:wrap">
+      <div class="card" style="flex:1 1 160px; margin:0">
+        <div class="muted">Total bookings</div>
+        <div style="font-size:22px; font-weight:700"><%= totals.totalBookings %></div>
+      </div>
+
+      <div class="card" style="flex:1 1 160px; margin:0">
+        <div class="muted">By status</div>
+        <div>
+          <% Object.keys(totals.byStatus || {}).forEach(k => { %>
+            <div><b><%= k %></b>: <%= totals.byStatus[k] %></div>
+          <% }) %>
+        </div>
+      </div>
+
+      <div class="card" style="flex:1 1 160px; margin:0">
+        <div class="muted">By service</div>
+        <div>
+          <% Object.keys(totals.byService || {}).forEach(k => { %>
+            <div><b><%= k %></b>: <%= totals.byService[k] %></div>
+          <% }) %>
+        </div>
+      </div>
+
+      <div class="card" style="flex:1 1 160px; margin:0">
+        <div class="muted">Conversion (created → confirmed)</div>
+        <div style="font-size:22px; font-weight:700"><%= (totals.conversionRate || 0).toFixed(1) %>%</div>
+      </div>
+
+      <div class="card" style="flex:1 1 160px; margin:0">
+        <div class="muted">Avg lead time (days)</div>
+        <div style="font-size:22px; font-weight:700"><%= (totals.avgLead || 0).toFixed(1) %></div>
+      </div>
+
+      <div class="card" style="flex:1 1 160px; margin:0">
+        <div class="muted">Hours booked (next 30d)</div>
+        <div style="font-size:22px; font-weight:700"><%= (totals.hoursNext30 || 0).toFixed(1) %> h</div>
+      </div>
+
+      <div class="card" style="flex:1 1 160px; margin:0">
+        <div class="muted">Messages</div>
+        <div><b>In:</b> <%= totals.msgIn %> • <b>Out:</b> <%= totals.msgOut %></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top private clients -->
+  <div class="card">
+    <h2 style="margin:0 0 8px">Top private clients (by bookings</h2>
+    <% if (!topClients || !topClients.length) { %>
+      <p class="muted">No private clients in this window.</p>
+    <% } else { %>
+      <div class="row" style="font-weight:600; padding:6px 0; border-bottom:1px solid var(--border);">
+        <div style="flex:2 1 200px">Name</div>
+        <div style="flex:2 1 200px">Phone</div>
+        <div style="width:120px">Count</div>
+      </div>
+      <div class="list" style="gap:0">
+        <% topClients.forEach(c => { %>
+          <div class="row" style="padding:10px 0; border-bottom:1px solid var(--border); align-items:center;">
+            <div style="flex:2 1 200px"><%= c.name || '—' %></div>
+            <div style="flex:2 1 200px"><%= c.phone || '—' %></div>
+            <div style="width:120px"><%= c.count %></div>
+          </div>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+
+  <!-- Time series -->
+  <div class="card">
+    <h2 style="margin:0 0 8px">Bookings created per day</h2>
+    <% const days = Object.keys(byDay || {}).sort(); %>
+    <% if (!days.length) { %>
+      <p class="muted">No bookings created in this window.</p>
+    <% } else { %>
+      <div class="row" style="font-weight:600; padding:6px 0; border-bottom:1px solid var(--border);">
+        <div style="flex:2 1 200px">Date</div>
+        <div style="width:120px">Count</div>
+      </div>
+      <div class="list" style="gap:0">
+        <% days.forEach(d => { %>
+          <div class="row" style="padding:10px 0; border-bottom:1px solid var(--border); align-items:center;">
+            <div style="flex:2 1 200px"><%= d %></div>
+            <div style="width:120px"><%= byDay[d] %></div>
+          </div>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+</div>
