@@ -1,0 +1,10 @@
+<!-- inside the form header row -->
+<label style="display:flex;gap:8px;align-items:center;">
+  <input type="checkbox" name="trusted" <%= client.trusted ? 'checked' : '' %> />
+  Trusted (auto-confirm eligible)
+</label>
+
+<label style="display:flex;gap:8px;align-items:center;margin:8px 0;">
+  <input type="checkbox" name="isPrivate" <%= client.isPrivate ? 'checked' : '' %> />
+  <span>Private number (non-Rover)</span>
+</label>

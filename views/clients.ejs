@@ -1,0 +1,39 @@
+<!-- views/clients.ejs -->
+<h2 style="margin-top:0;">Clients (private numbers)</h2>
+
+<div class="card" style="margin-bottom:10px;">
+  <div class="muted">
+    Only private (non-Rover) numbers appear here. Use each profile to mark
+    “Trusted” (auto-confirm eligible) and “Private number”.
+  </div>
+</div>
+
+<div class="list">
+  <% if (!clients.length) { %>
+    <div class="card muted">No private clients yet.</div>
+  <% } %>
+  <% clients.forEach(c => { const s = stats[c.id] || {count:0,confirmed:0,last:null}; %>
+    <a class="row card" href="/clients/<%= c.id %>" style="align-items:flex-start;">
+      <div style="flex:1;">
+        <div style="font-weight:700;">
+          <%= c.name || c.phone || '(no name)' %>
+          <% if (c.trusted) { %><span class="pill">Trusted</span><% } %>
+          <% if (c.isPrivate) { %><span class="pill" style="background:#eef;">Private</span><% } %>
+        </div>
+        <div class="muted">
+          <b>Phone:</b> <%= c.phone || '—' %>
+          • <b>Total bookings:</b> <%= s.count %>
+          • <b>Confirmed:</b> <%= s.confirmed %>
+          <% if (s.last) { %>
+            • <b>Last:</b> <%= new Date(s.last.startAt).toLocaleDateString() %>
+          <% } %>
+        </div>
+        <% if (c.notes) { %><div style="margin-top:6px;"><%= c.notes %></div><% } %>
+      </div>
+    </a>
+  <% }) %>
+</div>
+
+<style>
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#f5f5f5;border:1px solid #e5e5e5;margin-left:6px;font-size:12px;}
+</style>

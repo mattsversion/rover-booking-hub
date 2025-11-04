@@ -19,6 +19,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const app = express();
 const STORAGE_DIR = process.env.STORAGE_DIR || path.join(__dirname, '../storage');
+const FLAGS = {
+  autoArchiveDays: Number(process.env.AUTO_ARCHIVE_DAYS || 7),
+  autoConfirmTrusted: process.env.AUTO_CONFIRM_TRUSTED === '1',
+  adminToggles: process.env.ADMIN_TOGGLES === '1',
+};
+
 
 app.use(morgan('dev'));
 app.use(express.json());
@@ -152,6 +158,32 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 const SUBS_FILE   = path.join(STORAGE_DIR, 'push-subs.json');
 async function loadSubs(){ try { return JSON.parse(await fs.readFile(SUBS_FILE,'utf8')); } catch { return []; } }
 async function saveSubs(subs){ await fs.mkdir(STORAGE_DIR,{recursive:true}); await fs.writeFile(SUBS_FILE, JSON.stringify(subs,null,2),'utf8'); }
+async function runMaintenance() {
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - (FLAGS.autoArchiveDays * 24 * 60 * 60 * 1000));
+
+  const arch = await prisma.booking.updateMany({
+    where: {
+      endAt: { lt: cutoff },
+      status: { in: ['PENDING', 'CONFIRMED', 'CANCELED'] }
+    },
+    data: { status: 'ARCHIVED' }
+  });
+
+  // mark unread IN messages as read for newly archived threads
+  const archivedIds = await prisma.booking.findMany({
+    where: { status: 'ARCHIVED', updatedAt: { gte: new Date(now.getTime() - 60 * 60 * 1000) } },
+    select: { id: true }
+  });
+  if (archivedIds.length) {
+    await prisma.message.updateMany({
+      where: { bookingId: { in: archivedIds.map(x => x.id) }, direction: 'IN', isRead: false },
+      data: { isRead: true }
+    });
+  }
+
+  console.log('maintenance', { autoArchived: arch.count, cutoffDays: FLAGS.autoArchiveDays });
+}
 
 // Save a subscription
 app.post('/push/subscribe', express.json(), async (req, res) => {
@@ -629,6 +661,58 @@ app.get('/debug/counts', async (_req, res) => {
   ]);
   res.json({ bookings, messages });
 });
+
+// View current config/flags
+app.get('/debug/config', (_req, res) => {
+  res.json({
+    NODE_ENV: process.env.NODE_ENV,
+    DB_URL_PRESENT: !!process.env.DATABASE_URL,
+    AUTO_ARCHIVE_DAYS: FLAGS.autoArchiveDays,
+    AUTO_CONFIRM_TRUSTED: FLAGS.autoConfirmTrusted,
+    ADMIN_TOGGLES: FLAGS.adminToggles,
+  });
+});
+
+// --- Clients admin -------------------------------------------------
+
+// Find a client by phone (to get its id)
+app.get('/admin/clients/find', async (req, res) => {
+  const phone = (req.query.phone || '').trim();
+  if (!phone) return res.status(400).json({ error: 'phone required' });
+  const c = await prisma.client.findUnique({ where: { phone } });
+  if (!c) return res.status(404).json({ error: 'not found' });
+  res.json(c);
+});
+
+// Mark/unmark as trusted
+app.post('/admin/clients/:id/trusted', async (req, res) => {
+  const on = (req.query.on || '').toLowerCase();
+  const trusted = on === '1' || on === 'true' || on === 'yes';
+  const c = await prisma.client.update({ where: { id: req.params.id }, data: { trusted } });
+  res.json({ ok: true, id: c.id, phone: c.phone, trusted: c.trusted });
+});
+
+
+// Toggle flags at runtime (memory only; resets on redeploy)
+// Example: /admin/toggle?autoConfirm=off&archiveDays=10
+app.post('/admin/toggle', (req, res) => {
+  if (!FLAGS.adminToggles) return res.status(403).send('Toggles disabled');
+  const a = (req.query.autoConfirm || '').toLowerCase();
+  const d = Number(req.query.archiveDays);
+
+  if (a === 'on')  FLAGS.autoConfirmTrusted = true;
+  if (a === 'off') FLAGS.autoConfirmTrusted = false;
+  if (Number.isFinite(d) && d > 0) FLAGS.autoArchiveDays = d;
+
+  res.json({ ok: true, FLAGS });
+});
+
+// Quick test: run maintenance now
+app.post('/admin/maintenance/run', async (_req, res) => {
+  await runMaintenance();
+  res.redirect('/dashboard');
+});
+
 
 // --- one-click demo seed (idempotent-ish)
 app.post('/admin/seed-demo', async (_req, res) => {
