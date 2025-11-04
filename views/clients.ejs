@@ -33,14 +33,19 @@
     <% } else { %>
 
       <!-- header row -->
-      <div class="row" style="font-weight:600; padding:6px 0; border-bottom:1px solid var(--border);">
-        <div style="width:90px">Trusted</div>
-        <div style="flex:1 1 180px">Phone</div>
-        <div style="flex:1 1 160px">Name</div>
-        <div style="width:80px">Private</div>
-        <div style="flex:1 1 220px">Updated</div>
-        <div style="width:160px"></div>
-      </div>
+<div class="row" style="font-weight:600; padding:6px 0; border-bottom:1px solid var(--border);">
+  <div style="width:90px">Trusted</div>
+  <div style="flex:1 1 180px">Phone</div>
+  <div style="flex:1 1 160px">Name</div>
+  <div style="width:80px">Private</div>
+  <div style="flex:1 1 220px">Updated</div>
+  <!-- 🆕 insights headers -->
+  <div style="flex:1 1 120px">Total</div>
+  <div style="flex:1 1 180px">Last booking</div>
+  <div style="flex:1 1 100px">LTV</div>
+  <div style="width:160px"></div>
+</div>
+
 
       <!-- items -->
       <div class="list" style="gap:0">
@@ -68,6 +73,14 @@
             <div class="muted" style="flex:1 1 220px">
               <%= new Date(c.updatedAt).toLocaleString() %>
             </div>
+
+            <!-- 🆕 insights columns -->
+<div style="flex:1 1 120px"><%= c.insights?.totalBookings || 0 %></div>
+<div style="flex:1 1 180px">
+  <%= c.insights?.lastBookingAt ? new Date(c.insights.lastBookingAt).toLocaleDateString() : '—' %>
+</div>
+<div style="flex:1 1 100px"><%= c.insights?.ltvScore ?? '0.0' %></div>
+
 
             <div style="width:160px" class="actions">
               <% if (c.trusted) { %>
