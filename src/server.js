@@ -14,16 +14,9 @@ import puppeteer from 'puppeteer-core';
 import webpush from 'web-push';
 import fs from 'fs/promises';
 import fsSync from 'fs';
-<<<<<<< HEAD
 // in src/server.js
 import { adminClassify } from './routes/admin-classify.js';
 
-
-
-
-=======
-import { clientsRouter } from './routes/clients.js';
->>>>>>> b7eb8a1 (clients: add /clients UI (list/search), upsert, and trust toggle; mount route)
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -47,9 +40,12 @@ app.use((req, _res, next) => {
 app.use(adminClassify);
 
 app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+<<<<<<< HEAD
+=======
+app.use('/clients', clients);
+>>>>>>> 0206248 (clients: single router export; import + mount once; add simple trust/private UI)
 app.use('/webhooks', webhooks);
 app.use('/api', api);
-app.use('/clients', clientsRouter);
 
 
 app.set('view engine', 'ejs');
@@ -65,7 +61,7 @@ app.get('/api/notifications/latest', async (_req, res) => {
   res.json(last || {});
 });
 
-app.use('/public', express.static(path.join(__dirname, '../public')));
+
 
 // PWA assets at root (required by iOS)
 app.get('/manifest.webmanifest', (_req, res) =>
@@ -92,6 +88,7 @@ function requireAuth(req, res, next){
   if (req.cookies?.sess === process.env.DASH_PASSWORD) return next();
   return res.redirect('/login');
 }
+app.use('/public', express.static(path.join(__dirname, '../public')));
 app.use(requireAuth);
 
 // Danger: one-time cleanup for demo/test residue

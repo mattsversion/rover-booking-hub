@@ -1,4 +1,6 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
 <div class="topbar" style="position:static">
   <div class="container" style="display:flex;justify-content:space-between;align-items:center;padding:0">
     <h1 style="margin:0">Clients</h1>
@@ -103,80 +105,114 @@
 </div>
 =======
 <!-- views/clients.ejs -->
-<%- include('partials/header', { title: 'Clients' }) %>
+<% /* uses default layout 'layout' already set in server.js */ %>
 
-<div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap;">
-  <section style="flex:2 1 520px;">
-    <h2>Clients</h2>
-
-    <form method="get" action="/clients" style="margin:8px 0 16px;">
-      <input name="q" value="<%= q || '' %>" placeholder="search by phone or name" />
-      <button>Search</button>
-      <a href="/clients">Clear</a>
-    </form>
-
-    <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse; width:100%;">
-      <thead>
-        <tr>
-          <th>Trusted</th>
-          <th>Name</th>
-          <th>Phone</th>
-          <th>Private</th>
-          <th>Updated</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-      <% if (!clients.length) { %>
-        <tr><td colspan="6" style="text-align:center; color:#777;">no clients yet</td></tr>
-      <% } %>
-      <% clients.forEach(c => { %>
-        <tr>
-          <td><%= c.trusted ? '✅' : '—' %></td>
-          <td><%= c.name || '—' %></td>
-          <td><code><%= c.phone %></code></td>
-          <td><%= c.isPrivate ? 'yes' : 'no' %></td>
-          <td><%= new Date(c.updatedAt).toLocaleString() %></td>
-          <td style="white-space:nowrap;">
-            <form method="post" action="/clients/<%= c.id %>/toggle-trust" style="display:inline;">
-              <button><%= c.trusted ? 'Untrust' : 'Trust' %></button>
-            </form>
-            <form method="post" action="/clients/<%= c.id %>/delete" style="display:inline;" onsubmit="return confirm('Delete client?');">
-              <button style="margin-left:6px;">Delete</button>
-            </form>
-          </td>
-        </tr>
-      <% }) %>
-      </tbody>
-    </table>
-  </section>
-
-  <section style="flex:1 1 320px;">
-    <h3>Add or update a client</h3>
-    <form method="post" action="/clients/save" style="display:grid; gap:8px; max-width:420px;">
-      <label>Phone
-        <input name="phone" placeholder="+15551234567" required />
-      </label>
-      <label>Name
-        <input name="name" placeholder="optional" />
-      </label>
-      <label>
-        <input type="checkbox" name="isPrivate" checked />
-        Private (non-Rover)
-      </label>
-      <label>
-        <input type="checkbox" name="trusted" />
-        Trusted (auto-confirm if enabled)
-      </label>
-      <button>Save</button>
-    </form>
-
-    <div style="margin-top:12px; color:#555; font-size:14px;">
-      <b>Auto-confirm toggle:</b><br/>
-      Set <code>AUTO_CONFIRM_TRUSTED=1</code> in your environment. Only applies to bookings created from private (non-Rover) SMS.
+=======
+>>>>>>> 9e12256 (clients: match global layout + font styling)
+<div class="container">
+  <div class="topbar" style="position:static">
+=======
+<div class="topbar" style="position:static">
+  <div class="container" style="display:flex;justify-content:space-between;align-items:center;padding:0">
+>>>>>>> f6f2aff (clients: add insights columns (total, last booking, LTV))
+    <h1 style="margin:0">Clients</h1>
+    <div class="actions">
+      <a class="ghost" href="/">← Back to inbox</a>
     </div>
-  </section>
+  </div>
 </div>
 
-<%- include('partials/footer') %>
->>>>>>> b7eb8a1 (clients: add /clients UI (list/search), upsert, and trust toggle; mount route)
+<div class="container">
+
+  <!-- Add / update -->
+  <div class="card">
+    <h2 style="margin:0 0 8px">Add or update a client</h2>
+    <form class="row" method="POST" action="/clients/add">
+      <input name="phone" type="tel" placeholder="+15551234567" required />
+      <input name="name"  type="text" placeholder="Name (optional)" />
+      <label class="row" style="gap:6px; align-items:center;">
+        <input type="checkbox" name="trusted" />
+        Trusted
+      </label>
+      <button class="btn" type="submit">Save</button>
+    </form>
+    <p class="muted">Adding here marks the number as <b>private</b> automatically.</p>
+  </div>
+
+  <!-- List -->
+  <div class="card">
+    <h2 style="margin:0 0 8px">All clients</h2>
+
+    <% if (!clients || clients.length === 0) { %>
+      <p class="muted">No clients yet.</p>
+    <% } else { %>
+
+      <!-- header row -->
+<div class="row" style="font-weight:600; padding:6px 0; border-bottom:1px solid var(--border);">
+  <div style="width:90px">Trusted</div>
+  <div style="flex:1 1 180px">Phone</div>
+  <div style="flex:1 1 160px">Name</div>
+  <div style="width:80px">Private</div>
+  <div style="flex:1 1 220px">Updated</div>
+  <!-- 🆕 insights headers -->
+  <div style="flex:1 1 120px">Total</div>
+  <div style="flex:1 1 180px">Last booking</div>
+  <div style="flex:1 1 100px">LTV</div>
+  <div style="width:160px"></div>
+</div>
+
+
+      <!-- items -->
+      <div class="list" style="gap:0">
+        <% clients.forEach(c => { %>
+          <div class="row" style="padding:10px 0; border-bottom:1px solid var(--border); align-items:center;">
+            <div style="width:90px">
+              <% if (c.trusted) { %>
+                <span class="muted">✅ yes</span>
+              <% } else { %>
+                <span class="muted">—</span>
+              <% } %>
+            </div>
+
+            <div style="flex:1 1 180px"><%= c.phone %></div>
+            <div style="flex:1 1 160px"><%= c.name || '—' %></div>
+
+            <div style="width:80px">
+              <% if (c.isPrivate) { %>
+                <span class="muted">✅ yes</span>
+              <% } else { %>
+                <span class="muted">—</span>
+              <% } %>
+            </div>
+
+            <div class="muted" style="flex:1 1 220px">
+              <%= new Date(c.updatedAt).toLocaleString() %>
+            </div>
+
+            <!-- 🆕 insights columns -->
+<div style="flex:1 1 120px"><%= c.insights?.totalBookings || 0 %></div>
+<div style="flex:1 1 180px">
+  <%= c.insights?.lastBookingAt ? new Date(c.insights.lastBookingAt).toLocaleDateString() : '—' %>
+</div>
+<div style="flex:1 1 100px"><%= c.insights?.ltvScore ?? '0.0' %></div>
+
+
+            <div style="width:160px" class="actions">
+              <% if (c.trusted) { %>
+                <form method="POST" action="/clients/<%= c.id %>/trusted?on=0" style="display:inline">
+                  <button class="ghost" type="submit">Untrust</button>
+                </form>
+              <% } else { %>
+                <form method="POST" action="/clients/<%= c.id %>/trusted?on=1" style="display:inline">
+                  <button class="btn" type="submit">Trust</button>
+                </form>
+              <% } %>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+
+    <% } %>
+  </div>
+</div>
+>>>>>>> 794ce02 (merge: resolve clients route conflict; clients view uses global layout + trust toggle)
