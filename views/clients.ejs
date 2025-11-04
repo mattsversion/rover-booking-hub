@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <div class="topbar" style="position:static">
   <div class="container" style="display:flex;justify-content:space-between;align-items:center;padding:0">
     <h1 style="margin:0">Clients</h1>
@@ -100,3 +101,82 @@
     <% } %>
   </div>
 </div>
+=======
+<!-- views/clients.ejs -->
+<%- include('partials/header', { title: 'Clients' }) %>
+
+<div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap;">
+  <section style="flex:2 1 520px;">
+    <h2>Clients</h2>
+
+    <form method="get" action="/clients" style="margin:8px 0 16px;">
+      <input name="q" value="<%= q || '' %>" placeholder="search by phone or name" />
+      <button>Search</button>
+      <a href="/clients">Clear</a>
+    </form>
+
+    <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse; width:100%;">
+      <thead>
+        <tr>
+          <th>Trusted</th>
+          <th>Name</th>
+          <th>Phone</th>
+          <th>Private</th>
+          <th>Updated</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      <% if (!clients.length) { %>
+        <tr><td colspan="6" style="text-align:center; color:#777;">no clients yet</td></tr>
+      <% } %>
+      <% clients.forEach(c => { %>
+        <tr>
+          <td><%= c.trusted ? '✅' : '—' %></td>
+          <td><%= c.name || '—' %></td>
+          <td><code><%= c.phone %></code></td>
+          <td><%= c.isPrivate ? 'yes' : 'no' %></td>
+          <td><%= new Date(c.updatedAt).toLocaleString() %></td>
+          <td style="white-space:nowrap;">
+            <form method="post" action="/clients/<%= c.id %>/toggle-trust" style="display:inline;">
+              <button><%= c.trusted ? 'Untrust' : 'Trust' %></button>
+            </form>
+            <form method="post" action="/clients/<%= c.id %>/delete" style="display:inline;" onsubmit="return confirm('Delete client?');">
+              <button style="margin-left:6px;">Delete</button>
+            </form>
+          </td>
+        </tr>
+      <% }) %>
+      </tbody>
+    </table>
+  </section>
+
+  <section style="flex:1 1 320px;">
+    <h3>Add or update a client</h3>
+    <form method="post" action="/clients/save" style="display:grid; gap:8px; max-width:420px;">
+      <label>Phone
+        <input name="phone" placeholder="+15551234567" required />
+      </label>
+      <label>Name
+        <input name="name" placeholder="optional" />
+      </label>
+      <label>
+        <input type="checkbox" name="isPrivate" checked />
+        Private (non-Rover)
+      </label>
+      <label>
+        <input type="checkbox" name="trusted" />
+        Trusted (auto-confirm if enabled)
+      </label>
+      <button>Save</button>
+    </form>
+
+    <div style="margin-top:12px; color:#555; font-size:14px;">
+      <b>Auto-confirm toggle:</b><br/>
+      Set <code>AUTO_CONFIRM_TRUSTED=1</code> in your environment. Only applies to bookings created from private (non-Rover) SMS.
+    </div>
+  </section>
+</div>
+
+<%- include('partials/footer') %>
+>>>>>>> b7eb8a1 (clients: add /clients UI (list/search), upsert, and trust toggle; mount route)

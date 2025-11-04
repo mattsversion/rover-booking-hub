@@ -14,12 +14,16 @@ import puppeteer from 'puppeteer-core';
 import webpush from 'web-push';
 import fs from 'fs/promises';
 import fsSync from 'fs';
+<<<<<<< HEAD
 // in src/server.js
 import { adminClassify } from './routes/admin-classify.js';
 
 
 
 
+=======
+import { clientsRouter } from './routes/clients.js';
+>>>>>>> b7eb8a1 (clients: add /clients UI (list/search), upsert, and trust toggle; mount route)
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -45,6 +49,7 @@ app.use(adminClassify);
 app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 app.use('/webhooks', webhooks);
 app.use('/api', api);
+app.use('/clients', clientsRouter);
 
 
 app.set('view engine', 'ejs');
