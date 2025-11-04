@@ -2,53 +2,44 @@
 import express from 'express';
 import { prisma } from '../db.js';
 
-export const clientsRouter = express.Router();
+export const clients = express.Router(); // <-- named export
 
-clientsRouter.get('/', async (req, res) => {
-  const q = (req.query.q || '').trim();
-  const where = q ? {
-    OR: [
-      { phone: { contains: q, mode: 'insensitive' } },
-      { name:  { contains: q, mode: 'insensitive' } },
-    ],
-  } : {};
-
-  const clients = await prisma.client.findMany({
-    where,
-    orderBy: [{ trusted: 'desc' }, { updatedAt: 'desc' }],
+// List ONLY private (non-Rover) clients
+clients.get('/', async (_req, res) => {
+  const rows = await prisma.client.findMany({
+    where: { isPrivate: true },
+    orderBy: [{ name: 'asc' }, { phone: 'asc' }]
   });
-
-  res.render('clients', { clients, q });
+  res.render('clients', { clients: rows }); // layout is global
 });
 
-clientsRouter.post('/save', async (req, res) => {
-  const phone = (req.body.phone || '').trim();
-  if (!phone) return res.status(400).send('phone required');
-  const name      = (req.body.name || '').trim() || null;
+// Create/update from the form
+clients.post('/upsert', async (req, res) => {
+  const { phone, name } = req.body;
   const isPrivate = !!req.body.isPrivate;
   const trusted   = !!req.body.trusted;
+  if (!phone) return res.status(400).send('phone required');
 
   await prisma.client.upsert({
     where: { phone },
-    update: { name, isPrivate, trusted },
-    create: { phone, name, isPrivate, trusted },
+    create: { phone, name: name || null, isPrivate, trusted },
+    update: { name: name || null, isPrivate, trusted }
   });
-
   res.redirect('/clients');
 });
 
-clientsRouter.post('/:id/toggle-trust', async (req, res) => {
-  const id = req.params.id;
-  const c = await prisma.client.findUnique({ where: { id } });
+// Toggle trusted on a client
+clients.post('/:id/toggle-trust', async (req, res) => {
+  const c = await prisma.client.findUnique({ where: { id: req.params.id } });
   if (!c) return res.status(404).send('not found');
-  await prisma.client.update({
-    where: { id },
-    data: { trusted: !c.trusted, isPrivate: true },
-  });
+  await prisma.client.update({ where: { id: c.id }, data: { trusted: !c.trusted } });
   res.redirect('/clients');
 });
 
-clientsRouter.post('/:id/delete', async (req, res) => {
-  await prisma.client.delete({ where: { id: req.params.id } }).catch(()=>{});
+// Toggle private on a client
+clients.post('/:id/toggle-private', async (req, res) => {
+  const c = await prisma.client.findUnique({ where: { id: req.params.id } });
+  if (!c) return res.status(404).send('not found');
+  await prisma.client.update({ where: { id: c.id }, data: { isPrivate: !c.isPrivate } });
   res.redirect('/clients');
 });
