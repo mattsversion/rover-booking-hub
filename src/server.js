@@ -14,7 +14,7 @@ import puppeteer from 'puppeteer-core';
 import webpush from 'web-push';
 import fs from 'fs/promises';
 import fsSync from 'fs';
-import { clientsRouter } from './routes/clients.js';
+
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -38,6 +38,7 @@ app.use((req, _res, next) => {
 });
 
 app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+app.use('/clients', clients);
 app.use('/webhooks', webhooks);
 app.use('/api', api);
 app.use('/clients', clientsRouter);
