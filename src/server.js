@@ -15,6 +15,7 @@ import webpush from 'web-push';
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import { clientsRouter } from './routes/clients.js';
+import { clients } from './routes/clients.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -37,7 +38,7 @@ app.use((req, _res, next) => {
 });
 
 app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
-
+app.use('/clients', clients);
 app.use('/webhooks', webhooks);
 app.use('/api', api);
 app.use('/clients', clientsRouter);
@@ -445,6 +446,8 @@ function defaultRange() {
   const from = new Date(to.getTime() - 90*24*60*60*1000);
   return { from: startOfDay(from), to: endOfDay(to) };
 }
+
+
 
 // -------- Page: /analytics --------
 app.get('/analytics', async (req, res) => {
@@ -858,7 +861,54 @@ app.post('/admin/clear-all', async (_req, res) => {
   res.redirect('/');
 });
 
+// ===== Clients UI (simple) =====================================
 
+// normalize phone a tiny bit
+function normPhone(p=''){ return p.replace(/[^\d+]/g,'').replace(/^1(\d{10})$/,'+$1').trim(); }
+
+// Clients list + add form
+app.get('/clients', async (_req, res) => {
+  const clients = await prisma.client.findMany({
+    orderBy: [{ trusted: 'desc' }, { updatedAt: 'desc' }],
+  });
+  res.render('clients', { clients });
+});
+
+// Create/update client from a phone; optional name; trust checkbox
+app.post('/clients/add', async (req, res) => {
+  const phone = normPhone(req.body.phone || '');
+  const name  = (req.body.name || '').trim() || null;
+  const trusted = !!req.body.trusted;
+  const isPrivate = true; // adding by hand = private number
+
+  if (!phone) return res.status(400).send('phone required');
+
+  const existing = await prisma.client.findUnique({ where: { phone } });
+  if (existing) {
+    await prisma.client.update({
+      where: { id: existing.id },
+      data: {
+        name: existing.name || name,
+        isPrivate: true,
+        trusted
+      }
+    });
+    return res.redirect('/clients');
+  }
+
+  await prisma.client.create({
+    data: { phone, name, isPrivate, trusted }
+  });
+  res.redirect('/clients');
+});
+
+// Toggle trusted on/off via POST
+app.post('/clients/:id/trusted', async (req, res) => {
+  const on = (req.query.on || '').toLowerCase();
+  const trusted = on === '1' || on === 'true' || on === 'yes';
+  await prisma.client.update({ where: { id: req.params.id }, data: { trusted } });
+  res.redirect('/clients');
+});
 
 
 const port = process.env.PORT || 3000;
