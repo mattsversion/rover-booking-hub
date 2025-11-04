@@ -67,6 +67,9 @@ model Message {
   isRead Boolean @default(false)
 
   updatedAt DateTime @default(now()) @updatedAt
+  classifyScore      Float?    // 0..1 confidence
+  classifyLabel      String?   // e.g. "BOOKING_REQUEST" | "GENERAL" | "SPAM"
+  extractedJson      Json?     // { startAt, endAt, serviceType, dogsCount, clientName }
 }
 
 model PushSub {
