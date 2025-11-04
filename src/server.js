@@ -19,17 +19,14 @@ import { adminClassify } from './routes/admin-classify.js';
 import { clientsRouter } from './routes/clients.js';
 import { reparseAll } from './services/intake.js';
 
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const app = express();
-const STORAGE_DIR = process.env.STORAGE_DIR || path.join(__dirname, '../storage');
 
-const FLAGS = {
-  autoArchiveDays: Number(process.env.AUTO_ARCHIVE_DAYS || 7),
-  autoConfirmTrusted: process.env.AUTO_CONFIRM_TRUSTED === '1',
-  adminToggles: process.env.ADMIN_TOGGLES === '1',
-};
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, '../views'));
+app.use(expressLayouts);
+app.set('layout', 'layout');
 
 app.use(morgan('dev'));
 app.use(express.json());
@@ -39,6 +36,9 @@ app.use((req, _res, next) => {
   console.log('REQ', req.method, req.url);
   next();
 });
+
+app.use('/public', express.static(path.join(__dirname, '../public')));
+
 app.use(adminClassify);
 
 app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
@@ -47,10 +47,16 @@ app.use('/clients', clientsRouter);
 app.use('/webhooks', webhooks);
 app.use('/api', api);
 
-app.set('view engine', 'ejs');
-app.set('views', path.join(__dirname, '../views'));
-app.use(expressLayouts);
-app.set('layout', 'layout');
+
+const STORAGE_DIR = process.env.STORAGE_DIR || path.join(__dirname, '../storage');
+
+const FLAGS = {
+  autoArchiveDays: Number(process.env.AUTO_ARCHIVE_DAYS || 7),
+  autoConfirmTrusted: process.env.AUTO_CONFIRM_TRUSTED === '1',
+  adminToggles: process.env.ADMIN_TOGGLES === '1',
+};
+
+
 
 // PWA assets at root (required by iOS)
 app.get('/manifest.webmanifest', (_req, res) =>
@@ -77,7 +83,7 @@ function requireAuth(req, res, next){
   if (req.cookies?.sess === process.env.DASH_PASSWORD) return next();
   return res.redirect('/login');
 }
-app.use('/public', express.static(path.join(__dirname, '../public')));
+
 app.use(requireAuth);
 
 // quick “latest notification” endpoint used by the UI ping
@@ -709,54 +715,7 @@ app.post('/admin/clear-all', async (_req, res) => {
   res.redirect('/');
 });
 
-// ===== Clients UI (simple) =====================================
 
-// normalize phone a tiny bit
-function normPhone(p=''){ return p.replace(/[^\d+]/g,'').replace(/^1(\d{10})$/,'+$1').trim(); }
-
-// Clients list + add form
-app.get('/clients', async (_req, res) => {
-  const clients = await prisma.client.findMany({
-    orderBy: [{ trusted: 'desc' }, { updatedAt: 'desc' }],
-  });
-  res.render('clients', { clients });
-});
-
-// Create/update client from a phone; optional name; trust checkbox
-app.post('/clients/add', async (req, res) => {
-  const phone = normPhone(req.body.phone || '');
-  const name  = (req.body.name || '').trim() || null;
-  const trusted = !!req.body.trusted;
-  const isPrivate = true; // adding by hand = private number
-
-  if (!phone) return res.status(400).send('phone required');
-
-  const existing = await prisma.client.findUnique({ where: { phone } });
-  if (existing) {
-    await prisma.client.update({
-      where: { id: existing.id },
-      data: {
-        name: existing.name || name,
-        isPrivate: true,
-        trusted
-      }
-    });
-    return res.redirect('/clients');
-  }
-
-  await prisma.client.create({
-    data: { phone, name, isPrivate, trusted }
-  });
-  res.redirect('/clients');
-});
-
-// Toggle trusted on/off via POST
-app.post('/clients/:id/trusted', async (req, res) => {
-  const on = (req.query.on || '').toLowerCase();
-  const trusted = on === '1' || on === 'true' || on === 'yes';
-  await prisma.client.update({ where: { id: req.params.id }, data: { trusted } });
-  res.redirect('/clients');
-});
 
 // --- Admin Tools page
 app.get('/admin/tools', (_req, res) => {
