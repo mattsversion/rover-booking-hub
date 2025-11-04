@@ -1,65 +1,72 @@
-<!-- views/clients.ejs -->
-<% /* uses default layout 'layout' already set in server.js */ %>
+<% layout('layout') %>
+<style>
+  .card{border:1px solid #ddd;border-radius:12px;padding:12px;margin:16px 0}
+  .muted{color:#666}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:8px 10px;border-bottom:1px solid #eee;text-align:left}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;border:1px solid #ddd;font-size:12px}
+  .pill.ok{background:#eaffea;border-color:#b9e6b9}
+  .pill.no{background:#fff2f2;border-color:#ffd6d6}
+  form.inline{display:inline}
+</style>
 
-<div class="container">
-  <header class="page-head">
-    <h1>Clients (private numbers)</h1>
-    <p class="muted">
-      Only private (non-Rover) numbers appear here. Mark a client as <b>Trusted</b> to enable auto-confirm (when <code>AUTO_CONFIRM_TRUSTED=1</code>).
-    </p>
-  </header>
+<h2>Clients</h2>
 
-  <form class="toolbar" method="get" action="/clients">
-    <input class="input" name="q" value="<%= q || '' %>" placeholder="search phone or name" />
-    <button class="btn">Search</button>
-    <a class="link" href="/clients">Clear</a>
-  </form>
-
-  <section class="card">
-    <h3>Add / update a client</h3>
-    <form class="grid gap" method="post" action="/clients/save">
-      <label class="field">
-        <span>Phone</span>
-        <input class="input" name="phone" placeholder="+15551234567" required />
+<div class="card">
+  <h3>Add or update a client</h3>
+  <form method="POST" action="/clients/add">
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <input name="phone" placeholder="+15551234567" required style="padding:8px;border:1px solid #ddd;border-radius:8px;min-width:220px">
+      <input name="name"  placeholder="Name (optional)" style="padding:8px;border:1px solid #ddd;border-radius:8px;min-width:220px">
+      <label style="display:flex;align-items:center;gap:6px">
+        <input type="checkbox" name="trusted"> Trusted
       </label>
-      <label class="field">
-        <span>Name</span>
-        <input class="input" name="name" placeholder="optional" />
-      </label>
-      <label class="checkbox">
-        <input type="checkbox" name="isPrivate" checked /> Private (non-Rover)
-      </label>
-      <label class="checkbox">
-        <input type="checkbox" name="trusted" /> Trusted (auto-confirm)
-      </label>
-      <button class="btn primary">Save</button>
-    </form>
-  </section>
-
-  <section class="card">
-    <div class="table-head">
-      <div>Trusted</div><div>Name</div><div>Phone</div><div>Private</div><div>Updated</div><div>Actions</div>
+      <button style="padding:8px 12px;border:1px solid #111;border-radius:8px;background:#111;color:#fff">Save</button>
     </div>
-    <% if (!clients.length) { %>
-      <div class="empty">No private clients yet.</div>
-    <% } else { %>
+    <div class="muted" style="margin-top:8px">Adding here marks the number as <b>private</b> automatically.</div>
+  </form>
+</div>
+
+<div class="card">
+  <h3>All clients</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Trusted</th>
+        <th>Phone</th>
+        <th>Name</th>
+        <th>Private</th>
+        <th>Updated</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
       <% clients.forEach(c => { %>
-        <div class="table-row">
-          <div><%= c.trusted ? '✅' : '—' %></div>
-          <div><%= c.name || '—' %></div>
-          <div><code><%= c.phone %></code></div>
-          <div><%= c.isPrivate ? 'yes' : 'no' %></div>
-          <div><%= new Date(c.updatedAt).toLocaleString() %></div>
-          <div class="row-actions">
-            <form method="post" action="/clients/<%= c.id %>/toggle-trust">
-              <button class="btn"><%= c.trusted ? 'Untrust' : 'Trust' %></button>
-            </form>
-            <form method="post" action="/clients/<%= c.id %>/delete" onsubmit="return confirm('Delete client?');">
-              <button class="btn danger">Delete</button>
-            </form>
-          </div>
-        </div>
+        <tr>
+          <td>
+            <% if (c.trusted) { %>
+              <span class="pill ok">YES</span>
+            <% } else { %>
+              <span class="pill no">NO</span>
+            <% } %>
+          </td>
+          <td><%= c.phone %></td>
+          <td><%= c.name || '—' %></td>
+          <td><%= c.isPrivate ? 'Yes' : 'No' %></td>
+          <td class="muted"><%= new Date(c.updatedAt).toLocaleString() %></td>
+          <td>
+            <% if (c.trusted) { %>
+              <form class="inline" method="POST" action="/clients/<%= c.id %>/trusted?on=0">
+                <button>Untrust</button>
+              </form>
+            <% } else { %>
+              <form class="inline" method="POST" action="/clients/<%= c.id %>/trusted?on=1">
+                <button>Trust</button>
+              </form>
+            <% } %>
+          </td>
+        </tr>
       <% }) %>
-    <% } %>
-  </section>
+    </tbody>
+  </table>
 </div>
