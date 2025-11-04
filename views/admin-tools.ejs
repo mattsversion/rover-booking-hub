@@ -1,0 +1,35 @@
+<!-- views/admin-tools.ejs -->
+<div class="topbar" style="position:static">
+  <div class="container" style="display:flex;justify-content:space-between;align-items:center;padding:0">
+    <h1 style="margin:0">Admin Tools</h1>
+    <div class="actions">
+      <a class="ghost" href="/">← Back to inbox</a>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="card">
+    <h2 style="margin:0 0 8px">Double-check & auto-fill</h2>
+    <p class="muted" style="margin-top:4px">
+      Re-parse recent messages, fix dates/service, attach or create bookings, and auto-link pets when possible.
+    </p>
+    <form method="POST" action="/admin/intake/reparse" class="row" style="gap:8px; align-items:center">
+      <label>Days back:
+        <input type="number" name="days" value="120" min="1" style="width:90px" />
+      </label>
+      <label class="row" style="gap:6px; align-items:center">
+        <input type="checkbox" name="onlyUnlinked" />
+        Only messages not linked to a booking
+      </label>
+      <button class="btn" type="submit">Run now</button>
+    </form>
+  </div>
+
+  <% if (typeof result !== 'undefined') { %>
+    <div class="card">
+      <h3 style="margin:0 0 6px">Result</h3>
+      <pre><%= JSON.stringify(result, null, 2) %></pre>
+    </div>
+  <% } %>
+</div>

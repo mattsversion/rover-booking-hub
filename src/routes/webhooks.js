@@ -7,9 +7,16 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { classifyMessage } from '../services/classifier.js';
+// 🔁 use the shared intake service:
+import {
+  findKeywords,
+  pickDateRange,
+  classifyService,
+  extractPetNames,
+  serializeRange,
+} from '../services/intake.js';
 
 export const webhooks = express.Router();
-
 // ---------- Web Push wiring ----------
 const VAPID_PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
@@ -17,6 +24,8 @@ const VAPID_SUBJECT     = process.env.VAPID_SUBJECT || 'mailto:you@example.com';
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 }
+
+
 
 // Persisted subscriptions (JSON file; db table is fine too)
 const __filename = fileURLToPath(import.meta.url);
@@ -66,6 +75,8 @@ function nextWeekdayDate(targetName, ref = new Date()) {
   d.setHours(0,0,0,0);
   return d;
 }
+
+
 
 // “thursday this week” → this week’s Thu (even if 2 days ahead)
 // If today is after Thu, roll forward to next week’s Thu.

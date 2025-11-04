@@ -17,6 +17,8 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import { adminClassify } from './routes/admin-classify.js';
 import { clientsRouter } from './routes/clients.js';
+import { reparseAll } from './services/intake.js';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -755,6 +757,25 @@ app.post('/clients/:id/trusted', async (req, res) => {
   await prisma.client.update({ where: { id: req.params.id }, data: { trusted } });
   res.redirect('/clients');
 });
+
+// --- Admin Tools page
+app.get('/admin/tools', (_req, res) => {
+  res.render('admin-tools');
+});
+
+// --- Batch: Double-check & auto-fill
+app.post('/admin/intake/reparse', express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const days = Number(req.body.days) || 120;
+    const onlyUnlinked = !!req.body.onlyUnlinked;
+    const result = await reparseAll(prisma, { days, onlyUnlinked });
+    res.render('admin-tools', { result });
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Reparse failed');
+  }
+});
+
 
 const port = process.env.PORT || 3000;
 app.listen(port, '0.0.0.0', () => console.log(`Listening on http://localhost:${port}`));
