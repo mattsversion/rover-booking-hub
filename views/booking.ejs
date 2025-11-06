@@ -71,6 +71,24 @@
   </form>
 </div>
 
+<!-- ==================== PENDING CHANGE REQUEST ==================== -->
+<% if ((booking.changes || []).length) { 
+     const cr = booking.changes[0]; %>
+  <h3>Requested Date Change</h3>
+  <div class="card">
+    <div class="muted">
+      From: <b><%= new Date(cr.oldStartAt).toLocaleString() %></b> – <b><%= new Date(cr.oldEndAt).toLocaleString() %></b><br/>
+      To:   <b><%= new Date(cr.newStartAt).toLocaleString() %></b> – <b><%= new Date(cr.newEndAt).toLocaleString() %></b>
+    </div>
+    <div class="actions" style="margin-top:8px;">
+      <form onsubmit="return acceptCR(event,'<%= cr.id %>')"><button>Accept Change</button></form>
+      <form onsubmit="return declineCR(event,'<%= cr.id %>')"><button class="danger">Decline</button></form>
+    </div>
+    <div class="muted">If accepted and this booking is confirmed, your Google Calendar will be updated automatically.</div>
+  </div>
+<% } %>
+
+
 <!-- ==================== EDIT / RESCHEDULE ==================== -->
 <h3>Edit / Reschedule</h3>
 <div class="card">
@@ -236,6 +254,25 @@ async function sendReply(e){
   if(!res.ok){ alert(data.error || 'Failed'); return false; }
   alert('Queued to send via phone.');
   e.target.reset();
+  location.reload();
+  return false;
+}
+
+async function acceptCR(e, id){
+  e.preventDefault();
+  const res = await fetch('/api/changes/accept/' + id, { method: 'POST' });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error || 'Failed'); return false; }
+  alert('Change accepted.');
+  location.reload();
+  return false;
+}
+async function declineCR(e, id){
+  e.preventDefault();
+  const res = await fetch('/api/changes/decline/' + id, { method: 'POST' });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error || 'Failed'); return false; }
+  alert('Change declined.');
   location.reload();
   return false;
 }
