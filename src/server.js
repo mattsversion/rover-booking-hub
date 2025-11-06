@@ -18,8 +18,10 @@ import fsSync from 'fs';
 import { adminClassify } from './routes/admin-classify.js';
 import { clientsRouter } from './routes/clients.js';
 import { reparseAll } from './services/intake.js';
-import pkgTz from 'date-fns-tz';
-const { utcToZonedTime, zonedTimeToUtc } = pkgTz;
+// top of src/server.js
+import * as dateFnsTz from 'date-fns-tz';
+const { utcToZonedTime, zonedTimeToUtc } = dateFnsTz;
+
 
 
 const TZ = process.env.TZ || 'America/New_York';
