@@ -14,8 +14,12 @@
       <div>
         <div class="muted">Range</div>
         <div style="font-weight:600">
-          <%= new Date(from).toLocaleDateString() %> – <%= new Date(to).toLocaleDateString() %>
-        </div>
+  <%= new Date(from).toLocaleDateString('en-US', { timeZone: TZ }) %>
+  –
+  <%= new Date(to).toLocaleDateString('en-US', { timeZone: TZ }) %>
+</div>
+
+
       </div>
       <div class="muted">
         (Change window via URL: /analytics?from=YYYY-MM-DD&to=YYYY-MM-DD)

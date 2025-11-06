@@ -16,9 +16,20 @@
 <% function card(b){ const last = (b.messages||[])[(b.messages||[]).length-1]; %>
   <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
     <div style="flex:1;">
-      <div style="font-weight:700;"><%= b.clientName %> • <%= b.status %></div>
+      <div style="font-weight:700;">
+  <%= b.clientName %>
+  <% if (b.contactLabel) { %> • <%= b.contactLabel %><% } %>
+  • <%= b.status %>
+</div>
+
+      
       <div class="muted"><b>Service:</b> <%= b.serviceType || '—' %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
-      <div class="muted"><%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %></div>
+      <div class="muted">
+  <%= new Date(b.startAt).toLocaleString('en-US', { timeZone: TZ }) %>
+  →
+  <%= new Date(b.endAt).toLocaleString('en-US', { timeZone: TZ }) %>
+</div>
+
       <% if (b.pets && b.pets.length) { %>
         <div class="muted" style="margin-top:6px;">
           <b>Pets:</b>

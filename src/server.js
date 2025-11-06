@@ -583,7 +583,8 @@ app.get('/analytics', async (req, res) => {
       msgIn, msgOut
     },
     topClients,
-    byDay
+    byDay,
+    TZ
   });
 
   function groupCount(arr, keyFn){
