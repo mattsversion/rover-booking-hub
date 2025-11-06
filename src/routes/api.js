@@ -92,6 +92,37 @@ api.post('/bookings', async (req, res) => {
   }
 });
 
+// ----- Change Requests -----
+api.post('/changes/accept/:id', async (req, res) => {
+  const cr = await prisma.changeRequest.findUnique({ where: { id: req.params.id } });
+  if (!cr) return res.status(404).json({ error: 'Change request not found' });
+
+  const booking = await prisma.booking.update({
+    where: { id: cr.bookingId },
+    data: { startAt: cr.newStartAt, endAt: cr.newEndAt }
+  });
+
+  // reflect on calendar if this booking is confirmed
+  if (booking.status === 'CONFIRMED') {
+    await createOrUpdateBusyEvent(booking, 'opaque');
+  }
+
+  await prisma.changeRequest.update({
+    where: { id: cr.id },
+    data: { status: 'ACCEPTED', decidedAt: new Date() }
+  });
+
+  res.json({ ok: true, bookingId: booking.id, newStartAt: booking.startAt, newEndAt: booking.endAt });
+});
+
+api.post('/changes/decline/:id', async (req, res) => {
+  const cr = await prisma.changeRequest.update({
+    where: { id: req.params.id },
+    data: { status: 'DECLINED', decidedAt: new Date() }
+  });
+  res.json({ ok: true, declined: cr.id });
+});
+
 
 /* ---------------- Rover imports ---------------- */
 // (kept the URL import only, since it’s what you use now)
