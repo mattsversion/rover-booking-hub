@@ -36,7 +36,7 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '../views'));
 app.use(expressLayouts);
 app.set('layout', 'layout');
-app.use('/', requireAuth, exportsRouter);
+
 
 app.use(morgan('dev'));
 app.use(express.json());
@@ -56,6 +56,7 @@ app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOStr
 app.use('/clients', clientsRouter);
 app.use('/webhooks', webhooks);
 app.use('/api', api);
+app.use('/', requireAuth, exportsRouter);
 
 
 const STORAGE_DIR = process.env.STORAGE_DIR || path.join(__dirname, '../storage');
