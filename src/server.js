@@ -447,16 +447,7 @@ function parseISODate(s) {
 }
 
 // get start/end of *calendar day in TZ*, expressed in UTC for DB querying
-function startOfDayTZ(d) {
-  const z = utcToZonedTime(d, TZ);
-  z.setHours(0, 0, 0, 0);
-  return zonedTimeToUtc(z, TZ);
-}
-function endOfDayTZ(d) {
-  const z = utcToZonedTime(d, TZ);
-  z.setHours(23, 59, 59, 999);
-  return zonedTimeToUtc(z, TZ);
-}
+
 
 
 function normPhone(p){
@@ -504,6 +495,18 @@ app.get('/dashboard', async (_req, res) => {
 // Analytics + CSV
 function fmt(n){ return Number.isFinite(n) ? n.toFixed(2) : '0.00'; }
 function padCSV(s=''){ return `"${String(s).replace(/"/g,'""')}"`; }
+// --- simple day boundary helpers (local time or your TZ wrapper) ---
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function endOfDay(d) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+
 function defaultRange() {
   const to = new Date();
   const from = new Date(to.getTime() - 90*24*60*60*1000);
