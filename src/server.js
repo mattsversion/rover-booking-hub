@@ -77,12 +77,31 @@ app.get('/debug/push', (_req, res) => {
 });
 
 // simple dashboard auth
+// simple dashboard auth
 function requireAuth(req, res, next){
+  // always allow webhooks
   if (req.path.startsWith('/webhooks')) return next();
+
+  // allow login endpoints
   if (req.path === '/login' || req.path === '/do-login') return next();
-  if (req.cookies?.sess === process.env.DASH_PASSWORD) return next();
-  return res.redirect('/login');
+
+  const ok = req.cookies?.sess === process.env.DASH_PASSWORD;
+
+  // if it's an API call and not authed, return 401 JSON (so fetch sees it)
+  if (req.path.startsWith('/api')) {
+    if (!ok) {
+      console.log('AUTH 401 for', req.method, req.originalUrl);
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+    return next();
+  }
+
+  // for normal pages, redirect to /login when not authed
+  if (!ok) return res.redirect('/login');
+
+  return next();
 }
+
 
 app.use(requireAuth);
 

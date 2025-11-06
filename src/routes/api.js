@@ -25,6 +25,37 @@ api.get('/bookings', async (_req, res) => {
   res.json(data);
 });
 
+// ----- Delete a booking (hard delete) -----
+// ----- Delete a booking (hard delete) -----
+api.delete('/bookings/:id', async (req, res) => {
+  const id = req.params.id;
+  console.log('[DELETE] /api/bookings/%s', id);
+
+  try {
+    // sanity
+    const existing = await prisma.booking.findUnique({ where: { id } });
+    if (!existing) {
+      console.log('[DELETE] not found', id);
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    // remove children first to satisfy FKs
+    const delMsgs = await prisma.message.deleteMany({ where: { bookingId: id } });
+    const delPets = await prisma.pet.deleteMany({ where: { bookingId: id } });
+
+    console.log('[DELETE] children', { msgs: delMsgs.count, pets: delPets.count });
+
+    await prisma.booking.delete({ where: { id } });
+
+    console.log('[DELETE] booking removed', id);
+    return res.json({ ok: true, removed: id, msgs: delMsgs.count, pets: delPets.count });
+  } catch (e) {
+    console.error('[DELETE] failed', e);
+    return res.status(500).json({ error: 'delete_failed', detail: String(e?.message || e) });
+  }
+});
+
+
 api.get('/bookings/:id', async (req, res) => {
   const b = await prisma.booking.findUnique({
     where: { id: req.params.id },

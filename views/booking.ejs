@@ -287,10 +287,25 @@ async function declineCR(e, id){
 
 async function confirmDelete(){
   if (!confirm('Delete this booking permanently? This cannot be undone.')) return;
-  const res = await fetch('/api/bookings/<%= booking.id %>', { method:'DELETE' });
-  const data = await res.json().catch(()=> ({}));
-  if(!res.ok){ alert(data.error || 'Delete failed'); return; }
-  alert('Booking deleted.');
-  location.href = '/';
+  try {
+    const res = await fetch('/api/bookings/<%= booking.id %>', {
+      method:'DELETE',
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    });
+
+    const ct = res.headers.get('content-type') || '';
+    const bodyText = await res.text();
+
+    if (!res.ok) {
+      alert(`Delete failed (status ${res.status}).\n\nResponse:\n${bodyText.slice(0, 400)}`);
+      return;
+    }
+
+    alert('Booking deleted.');
+    location.href = '/';
+  } catch (err) {
+    alert('Delete failed (network error).\n' + (err && err.message || err));
+  }
 }
 </script>
