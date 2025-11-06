@@ -1,10 +1,10 @@
-<h2 style="margin-top:0;"><%= booking.clientName %></h2>
 <div class="muted" style="margin-top:-6px;display:flex;gap:8px;align-items:center;">
-  <span><%= booking.clientPhone || booking.roverRelay || '' %></span>
+  <span><%= booking.contactLabel || booking.clientPhone || booking.roverRelay || '' %></span>
   <% if (booking.clientPhone || booking.roverRelay) { %>
     <button class="ghost" type="button" onclick="copyNumber('<%= booking.clientPhone || booking.roverRelay %>')">Copy</button>
   <% } %>
 </div>
+
 
 <div class="muted">
   <b>Status:</b> <%= booking.status %> •
@@ -101,12 +101,14 @@
 <h3>Edit / Reschedule</h3>
 <div class="card">
   <form id="edit-form" onsubmit="return saveBooking(event)">
-    <div class="row" style="gap:8px;flex-wrap:wrap;">
-      <input name="serviceType" placeholder="Service Type" value="<%= booking.serviceType %>">
-      <input name="dogsCount"  placeholder="Dogs" inputmode="numeric" value="<%= booking.dogsCount || 1 %>" style="max-width:100px;">
-      <input type="datetime-local" name="startAt" value="<%= new Date(booking.startAt).toISOString().slice(0,16) %>">
-      <input type="datetime-local" name="endAt"   value="<%= new Date(booking.endAt).toISOString().slice(0,16) %>">
-    </div>
+<div class="row" style="gap:8px;flex-wrap:wrap;">
+  <input name="contactLabel" placeholder="Contact name (shown instead of number)" value="<%= booking.contactLabel || '' %>">
+  <input name="serviceType" placeholder="Service Type" value="<%= booking.serviceType %>">
+  <input name="dogsCount"  placeholder="Dogs" inputmode="numeric" value="<%= booking.dogsCount || 1 %>" style="max-width:100px;">
+  <input type="datetime-local" name="startAt" value="<%= new Date(booking.startAt).toISOString().slice(0,16) %>">
+  <input type="datetime-local" name="endAt"   value="<%= new Date(booking.endAt).toISOString().slice(0,16) %>">
+</div>
+
     <textarea name="notes" rows="2" placeholder="Notes" style="width:100%;margin-top:8px;"><%= booking.notes || '' %></textarea>
     <div class="actions" style="margin-top:8px;">
       <button class="ghost" type="button" onclick="checkAvailability()">Check Availability</button>

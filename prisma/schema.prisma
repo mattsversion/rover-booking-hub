@@ -15,6 +15,7 @@ model Booking {
   externalId  String?
   clientName  String
   clientPhone String?
+  contactLabel  String?
   roverRelay  String?
   clientEmail String?
   changes   ChangeRequest[]

@@ -71,6 +71,7 @@ api.post('/bookings', async (req, res) => {
     const {
       clientName,
       clientPhone,
+      contactLabel,
       roverRelay,
       clientEmail,
       serviceType,
@@ -301,6 +302,7 @@ api.patch('/bookings/:id', async (req, res) => {
       serviceType: serviceType ?? undefined,
       dogsCount: dogsCount ? Number(dogsCount) : undefined,
       notes: notes ?? undefined,
+      contactLabel: contactLabel ?? undefined,
       ...(startAt ? { startAt: new Date(startAt) } : {}),
       ...(endAt   ? { endAt:   new Date(endAt)   } : {}),
     }

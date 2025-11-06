@@ -18,6 +18,10 @@ import fsSync from 'fs';
 import { adminClassify } from './routes/admin-classify.js';
 import { clientsRouter } from './routes/clients.js';
 import { reparseAll } from './services/intake.js';
+import { utcToZonedTime, zonedTimeToUtc } from 'date-fns-tz';
+
+const TZ = process.env.TZ || 'America/New_York';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -139,9 +143,11 @@ app.post('/admin/cleanup-demo', async (_req, res) => {
 });
 
 app.get('/login', (_req, res) => res.render('login'));
+
 app.post('/do-login', (req, res) => {
   const ok = (req.body.password || '') === process.env.DASH_PASSWORD;
   if (!ok) return res.render('login', { error:'Wrong Password' });
+  
 
   const remember = req.body.remember === '1';
   const cookieOpts = {
@@ -191,7 +197,7 @@ app.get('/', async (req, res) => {
   res.render('inbox', {
     tab,
     counts: { unread: unread.length, pending: pending.length, booked: booked.length },
-    unread, pending, booked
+    unread, pending, booked,
   });
 });
 
@@ -286,7 +292,7 @@ app.get('/booking/:id', async (req, res) => {
     data: { isRead: true }
   });
 
-  res.render('booking', { booking });
+  res.render('booking', { booking, TZ });
 });
 
 /** ===== Manual Booking ===== */
@@ -435,8 +441,19 @@ function parseISODate(s) {
   const d = new Date(s);
   return isNaN(d) ? null : d;
 }
-function startOfDay(d){ const x = new Date(d); x.setHours(0,0,0,0); return x; }
-function endOfDay(d){ const x = new Date(d); x.setHours(23,59,59,999); return x; }
+
+// get start/end of *calendar day in TZ*, expressed in UTC for DB querying
+function startOfDayTZ(d) {
+  const z = utcToZonedTime(d, TZ);
+  z.setHours(0, 0, 0, 0);
+  return zonedTimeToUtc(z, TZ);
+}
+function endOfDayTZ(d) {
+  const z = utcToZonedTime(d, TZ);
+  z.setHours(23, 59, 59, 999);
+  return zonedTimeToUtc(z, TZ);
+}
+
 
 function normPhone(p){
   if (!p) return null;
@@ -477,7 +494,7 @@ app.get('/dashboard', async (_req, res) => {
     })
   ]);
 
-  res.render('dashboard', { today: todayActive, upcoming: upcoming7, stalePending });
+  res.render('dashboard', { today: todayActive, upcoming: upcoming7, stalePending, TZ });
 });
 
 // Analytics + CSV
