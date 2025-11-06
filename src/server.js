@@ -255,7 +255,10 @@ app.post('/push/test', async (_req, res) => {
 app.get('/booking/:id', async (req, res) => {
   const booking = await prisma.booking.findUnique({
     where: { id: req.params.id },
-    include: { messages: { orderBy: { createdAt: 'asc' } }, pets: true }
+    include: { messages: { orderBy: { createdAt: 'asc' } },
+    pets: true,
+    changes: { where: { status: 'PENDING' }, orderBy: { createdAt: 'desc' } } // <— add this
+   }
   });
   if (!booking) return res.status(404).send('Not found');
 
