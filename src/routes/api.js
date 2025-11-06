@@ -8,6 +8,14 @@ import { fetchPetsFromRover } from '../services/rover.js';
 
 export const api = express.Router();
 
+// normalize phone into last 10 digits (US-style) for consistent matching
+function normPhone(p){
+  if (!p) return null;
+  const digits = String(p).replace(/\D+/g, '');
+  return digits.length >= 10 ? digits.slice(-10) : (digits || null);
+}
+
+
 /* ---------------- Bookings basic ---------------- */
 api.get('/bookings', async (_req, res) => {
   const data = await prisma.booking.findMany({
@@ -42,12 +50,10 @@ api.post('/bookings', async (req, res) => {
       status
     } = req.body || {};
 
-    // required
     if (!clientName || !startAt || !endAt) {
       return res.status(400).json({ error: 'clientName, startAt, endAt are required' });
     }
 
-    // coerce
     const start = new Date(startAt);
     const end   = new Date(endAt);
     if (isNaN(start) || isNaN(end)) {
@@ -57,11 +63,13 @@ api.post('/bookings', async (req, res) => {
     const dogs = Number(dogsCount);
     const dogsSafe = Number.isFinite(dogs) && dogs > 0 ? dogs : 1;
 
+    const phoneNorm = normPhone(clientPhone);
+
     const created = await prisma.booking.create({
       data: {
         source: 'Manual',
         clientName: String(clientName).trim(),
-        clientPhone: clientPhone ? String(clientPhone).trim() : null,
+        clientPhone: phoneNorm, // <— normalized
         roverRelay: roverRelay ? String(roverRelay).trim() : null,
         clientEmail: clientEmail ? String(clientEmail).trim() : null,
         serviceType: (serviceType && String(serviceType).trim()) || 'Unspecified',
@@ -73,7 +81,6 @@ api.post('/bookings', async (req, res) => {
       }
     });
 
-    // If HTML form: redirect to detail. If JSON: respond JSON.
     const wantsHTML = (req.headers.accept || '').includes('text/html');
     if (wantsHTML || req.headers['content-type']?.includes('application/x-www-form-urlencoded')) {
       return res.redirect(`/booking/${created.id}`);
@@ -84,6 +91,7 @@ api.post('/bookings', async (req, res) => {
     return res.status(500).json({ error: 'Failed to create booking' });
   }
 });
+
 
 /* ---------------- Rover imports ---------------- */
 // (kept the URL import only, since it’s what you use now)

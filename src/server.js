@@ -121,46 +121,53 @@ app.post('/admin/cleanup-demo', async (_req, res) => {
 
 app.get('/login', (_req, res) => res.render('login'));
 app.post('/do-login', (req, res) => {
-  if ((req.body.password || '') === process.env.DASH_PASSWORD) {
-    res.cookie('sess', process.env.DASH_PASSWORD, { httpOnly:true, sameSite:'lax' });
-    return res.redirect('/');
-  }
-  res.render('login', { error:'Wrong Password' });
+  const ok = (req.body.password || '') === process.env.DASH_PASSWORD;
+  if (!ok) return res.render('login', { error:'Wrong Password' });
+
+  const remember = req.body.remember === '1';
+  const cookieOpts = {
+    httpOnly: true,
+    sameSite: 'lax',
+    // set secure if behind https proxy
+    // secure: true,
+  };
+  if (remember) cookieOpts.maxAge = 60 * 24 * 60 * 60 * 1000; // 60 days
+
+  res.cookie('sess', process.env.DASH_PASSWORD, cookieOpts);
+  // redirect stays in the SAME tab
+  return res.redirect('/');
 });
+
 
 /** HOME with tabs — show ONLY threads that contain inbound booking-candidate messages */
 app.get('/', async (req, res) => {
   const tab = (req.query.tab || 'unread').toLowerCase();
 
   const commonInclude = { messages: { orderBy: { createdAt: 'desc' } }, pets: true };
-  const candidateClause = { messages: { some: { direction: 'IN', isBookingCandidate: true } } };
 
   const [unread, pending, booked] = await Promise.all([
+    // keep unread tied to inbound candidate messages
     prisma.booking.findMany({
       where: {
-        ...candidateClause,
         messages: { some: { direction: 'IN', isRead: false, isBookingCandidate: true } }
       },
       orderBy: { createdAt: 'desc' },
       include: commonInclude
     }),
+    // show ALL pending (manual included), newest first
     prisma.booking.findMany({
-      where: {
-        status: 'PENDING',
-        ...candidateClause
-      },
+      where: { status: 'PENDING' },
       orderBy: { createdAt: 'desc' },
       include: commonInclude
     }),
+    // show ALL confirmed, soonest first
     prisma.booking.findMany({
-      where: {
-        status: 'CONFIRMED',
-        ...candidateClause
-      },
+      where: { status: 'CONFIRMED' },
       orderBy: { startAt: 'asc' },
       include: commonInclude
     })
   ]);
+
 
   res.render('inbox', {
     tab,
@@ -274,7 +281,7 @@ app.post('/bookings', async (req, res) => {
       data: {
         source: 'Manual',
         clientName: clientName.trim(),
-        clientPhone: clientPhone?.trim() || null,
+        clientPhone: normPhone(clientPhone) || null,
         roverRelay: roverRelay?.trim() || null,
         clientEmail: clientEmail?.trim() || null,
         serviceType: serviceType?.trim() || 'Unspecified',
@@ -408,6 +415,12 @@ function parseISODate(s) {
 }
 function startOfDay(d){ const x = new Date(d); x.setHours(0,0,0,0); return x; }
 function endOfDay(d){ const x = new Date(d); x.setHours(23,59,59,999); return x; }
+
+function normPhone(p){
+  if (!p) return null;
+  const digits = String(p).replace(/\D+/g, '');
+  return digits.length >= 10 ? digits.slice(-10) : (digits || null);
+}
 
 // Dashboard
 app.get('/dashboard', async (_req, res) => {
