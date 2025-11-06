@@ -13,22 +13,33 @@
   </div>
 </div>
 
+<% function displayName(b){
+     return b.contactLabel || b.clientName || b.clientPhone || b.roverRelay || '—';
+   }
+   function displayHandle(b){
+     return b.clientPhone || b.roverRelay || '';
+   }
+%>
+
 <% function card(b){ const last = (b.messages||[])[(b.messages||[]).length-1]; %>
   <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
     <div style="flex:1;">
-      <div style="font-weight:700;">
-  <%= b.clientName %>
-  <% if (b.contactLabel) { %> • <%= b.contactLabel %><% } %>
-  • <%= b.status %>
-</div>
+      <!-- Headline prefers contactLabel, then clientName, then phone/relay -->
+      <div style="font-weight:700;"><%= displayName(b) %> • <%= b.status %></div>
 
-      
-      <div class="muted"><b>Service:</b> <%= b.serviceType || '—' %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
-      <div class="muted">
-  <%= new Date(b.startAt).toLocaleString('en-US', { timeZone: TZ }) %>
-  →
-  <%= new Date(b.endAt).toLocaleString('en-US', { timeZone: TZ }) %>
-</div>
+      <!-- Small line with the raw handle + Copy -->
+      <% if (displayHandle(b)) { %>
+        <div class="muted" style="margin-top:4px;display:flex;gap:8px;align-items:center;">
+          <span><%= displayHandle(b) %></span>
+          <button class="ghost" type="button"
+                  onclick="copyNumber('<%= displayHandle(b) %>')">Copy</button>
+        </div>
+      <% } %>
+
+      <div class="muted" style="margin-top:4px;">
+        <b>Service:</b> <%= b.serviceType || '—' %> • <b>Dogs:</b> <%= b.dogsCount || 1 %>
+      </div>
+      <div class="muted"><%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %></div>
 
       <% if (b.pets && b.pets.length) { %>
         <div class="muted" style="margin-top:6px;">
@@ -43,7 +54,6 @@
 <% } %>
 
 <div class="tab-panels">
-
   <!-- Today -->
   <div class="tab-panel active" id="tab-today">
     <h3>Today</h3>
@@ -76,10 +86,14 @@
       <% stalePending.forEach(b => { %><% card(b) %><% }) %>
     </div>
   </div>
-
 </div>
 
 <script>
+  function copyNumber(num){
+    if(!num) return;
+    navigator.clipboard.writeText(num).then(()=>alert('Number copied'));
+  }
+
   const btns = document.querySelectorAll('.segmented button');
   const panels = {
     today:    document.getElementById('tab-today'),
