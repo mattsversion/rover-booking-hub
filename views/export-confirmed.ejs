@@ -5,58 +5,67 @@
   <title>Confirmed Bookings</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; color: #111; }
-    .wrap { padding: 24px; }
-    h1 { margin: 0 0 8px 0; font-size: 24px; letter-spacing: 0.2px; }
-    .sub { color:#666; font-size:12px; margin-bottom:16px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    :root {
+      --ink:#111; --muted:#666; --line:#e7e7e7; --chip:#ddd; --bg:#fafafa;
+      --card:#fff; --accent:#6c5ce7; --accent-ink:#fff;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin:0; color:var(--ink); background:var(--bg); }
+    .wrap { padding: 24px; max-width: 1024px; margin: 0 auto; }
+    header { display:flex; align-items:baseline; gap:12px; margin-bottom:16px; }
+    h1 { margin:0; font-size:24px; letter-spacing:.2px; }
+    .sub { color:var(--muted); font-size:12px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .card {
-      border: 1px solid #e7e7e7;
-      border-radius: 12px;
-      padding: 14px;
-      background: #fff;
-      box-shadow: 0 1px 0 rgba(0,0,0,0.02);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      background: var(--card);
+      box-shadow: 0 1px 0 rgba(0,0,0,.02);
       break-inside: avoid;
     }
-    .row { display:flex; justify-content:space-between; gap:8px; }
-    .name { font-weight: 700; font-size: 16px; }
-    .muted { color:#666; font-size:12px; }
-    .chip { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid #ddd; margin-right:6px; }
-    .section-title { font-weight:600; font-size:12px; margin-top:8px; }
+    .row { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; }
+    .name { font-weight:700; font-size:16px; }
+    .handle { color:var(--muted); font-size:12px; }
+    .muted { color:var(--muted); font-size:12px; }
+    .chips { margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; }
+    .chip { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--chip); background:#fff; }
+    .chip.accent { background:var(--accent); color:var(--accent-ink); border-color:transparent; }
+    .section-title { font-weight:600; font-size:12px; margin-top:10px; letter-spacing:.2px; }
     ul { margin:4px 0 0 16px; padding:0; }
     @page { size: Letter; margin: 14mm; }
     @media print {
-      .wrap { padding: 0; }
+      body { background:#fff; }
+      .wrap { padding:0; }
     }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Confirmed Bookings</h1>
-    <div class="sub">Generated: <%= new Date(generatedAt).toLocaleString() %></div>
+    <header>
+      <h1>Confirmed Bookings</h1>
+      <div class="sub">Generated: <%= typeof fmt==='function' ? fmt(generatedAt) : new Date(generatedAt).toLocaleString() %></div>
+    </header>
 
     <% if (!bookings.length) { %>
       <div class="muted">No confirmed bookings.</div>
     <% } %>
 
     <div class="grid">
-      <% bookings.forEach(b => { %>
+      <% bookings.forEach(b => { 
+           const title = b.contactLabel || b.clientName || b.clientPhone || b.roverRelay || '—';
+           const handle = b.clientPhone || b.roverRelay || '';
+        %>
         <div class="card">
           <div class="row">
-            <div class="name"><%= b.clientName %></div>
-            <div class="muted"><%= b.clientPhone || b.roverRelay || '' %></div>
+            <div class="name"><%= title %></div>
+            <div class="handle"><%= handle %></div>
           </div>
 
-          <div style="margin-top:4px;">
-            <span class="chip"><%= b.serviceType %></span>
+          <div class="chips">
+            <span class="chip accent"><%= b.serviceType || 'Unspecified' %></span>
             <span class="chip">dogs: <%= b.dogsCount || 1 %></span>
-          </div>
-
-          <div class="section-title">Dates</div>
-          <div class="muted">
-            <%= new Date(b.startAt).toLocaleString() %>
-            &nbsp;→&nbsp;
-            <%= new Date(b.endAt).toLocaleString() %>
+            <span class="chip">start: <%= typeof fmt==='function' ? fmt(b.startAt) : new Date(b.startAt).toLocaleString() %></span>
+            <span class="chip">end: <%= typeof fmt==='function' ? fmt(b.endAt) : new Date(b.endAt).toLocaleString() %></span>
           </div>
 
           <div class="section-title">Pets</div>
@@ -67,7 +76,7 @@
                   <b><%= p.name %></b>
                   <span class="muted"><%= p.breed || '' %></span>
                   <% if (p.weightLbs) { %><span class="muted">• <%= p.weightLbs %> lbs</span><% } %>
-                  <% if (p.ageYears!=null) { %><span class="muted">• <%= p.ageYears %> yr</span><% } %>
+                  <% if (p.ageYears != null) { %><span class="muted">• <%= p.ageYears %> yr</span><% } %>
                 </li>
               <% }) %>
             </ul>

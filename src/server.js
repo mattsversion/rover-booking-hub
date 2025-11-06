@@ -18,9 +18,10 @@ import fsSync from 'fs';
 import { adminClassify } from './routes/admin-classify.js';
 import { clientsRouter } from './routes/clients.js';
 import { reparseAll } from './services/intake.js';
-// top of src/server.js
+import { exportsRouter } from './routes/exports.js';
 import * as dateFnsTz from 'date-fns-tz';
 const { utcToZonedTime, zonedTimeToUtc } = dateFnsTz;
+
 
 
 
@@ -35,6 +36,7 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '../views'));
 app.use(expressLayouts);
 app.set('layout', 'layout');
+app.use('/', requireAuth, exportsRouter);
 
 app.use(morgan('dev'));
 app.use(express.json());
