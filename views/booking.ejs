@@ -19,6 +19,15 @@
   <form onsubmit="return doAction(event,'confirm')"><button>Confirm + Calendar</button></form>
   <form onsubmit="return doAction(event,'decline')"><button class="danger">Decline</button></form>
   <button class="ghost" type="button" onclick="copyTemplate('cancel')">Copy Cancel Message</button>
+
+  <!-- Delete (trash can) -->
+  <button class="ghost danger" type="button" onclick="confirmDelete()" title="Delete booking" aria-label="Delete booking" style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" style="vertical-align:middle">
+      <path d="M6 2h4l1 1h3v2H2V3h3l1-1zm-1 5h2v7H5V7zm4 0h2v7H9V7z" fill="currentColor"/>
+    </svg>
+    Delete
+  </button>
+
   <a class="ghost" href="/">Back</a>
 </div>
 
@@ -87,7 +96,6 @@
     <div class="muted">If accepted and this booking is confirmed, your Google Calendar will be updated automatically.</div>
   </div>
 <% } %>
-
 
 <!-- ==================== EDIT / RESCHEDULE ==================== -->
 <h3>Edit / Reschedule</h3>
@@ -275,5 +283,14 @@ async function declineCR(e, id){
   alert('Change declined.');
   location.reload();
   return false;
+}
+
+async function confirmDelete(){
+  if (!confirm('Delete this booking permanently? This cannot be undone.')) return;
+  const res = await fetch('/api/bookings/<%= booking.id %>', { method:'DELETE' });
+  const data = await res.json().catch(()=> ({}));
+  if(!res.ok){ alert(data.error || 'Delete failed'); return; }
+  alert('Booking deleted.');
+  location.href = '/';
 }
 </script>
