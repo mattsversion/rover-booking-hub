@@ -97,21 +97,22 @@ api.post('/bookings', async (req, res) => {
 
     const phoneNorm = normPhone(clientPhone);
 
-    const created = await prisma.booking.create({
-      data: {
-        source: 'Manual',
-        clientName: String(clientName).trim(),
-        clientPhone: phoneNorm, // <— normalized
-        roverRelay: roverRelay ? String(roverRelay).trim() : null,
-        clientEmail: clientEmail ? String(clientEmail).trim() : null,
-        serviceType: (serviceType && String(serviceType).trim()) || 'Unspecified',
-        dogsCount: dogsSafe,
-        startAt: start,
-        endAt: end,
-        status: (status && String(status).toUpperCase()) === 'CONFIRMED' ? 'CONFIRMED' : 'PENDING',
-        notes: notes ? String(notes) : null
-      }
-    });
+const created = await prisma.booking.create({
+  data: {
+    source: 'Manual',
+    clientName: String(clientName).trim(),
+    clientPhone: phoneNorm,
+    contactLabel: contactLabel ? String(contactLabel).trim() : null, // ← add here
+    roverRelay: roverRelay ? String(roverRelay).trim() : null,
+    clientEmail: clientEmail ? String(clientEmail).trim() : null,
+    serviceType: (serviceType && String(serviceType).trim()) || 'Unspecified',
+    dogsCount: dogsSafe,
+    startAt: start,
+    endAt: end,
+    status: (status && String(status).toUpperCase()) === 'CONFIRMED' ? 'CONFIRMED' : 'PENDING',
+    notes: notes ? String(notes) : null
+  }
+});
 
     const wantsHTML = (req.headers.accept || '').includes('text/html');
     if (wantsHTML || req.headers['content-type']?.includes('application/x-www-form-urlencoded')) {

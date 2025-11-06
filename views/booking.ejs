@@ -6,6 +6,7 @@
 </div>
 
 
+
 <div class="muted">
   <b>Status:</b> <%= booking.status %> •
   <b>Service:</b> <%= booking.serviceType %> •
@@ -101,8 +102,9 @@
 <h3>Edit / Reschedule</h3>
 <div class="card">
   <form id="edit-form" onsubmit="return saveBooking(event)">
-<div class="row" style="gap:8px;flex-wrap:wrap;">
   <input name="contactLabel" placeholder="Contact name (shown instead of number)" value="<%= booking.contactLabel || '' %>">
+
+<div class="row" style="gap:8px;flex-wrap:wrap;">
   <input name="serviceType" placeholder="Service Type" value="<%= booking.serviceType %>">
   <input name="dogsCount"  placeholder="Dogs" inputmode="numeric" value="<%= booking.dogsCount || 1 %>" style="max-width:100px;">
   <input type="datetime-local" name="startAt" value="<%= new Date(booking.startAt).toISOString().slice(0,16) %>">
