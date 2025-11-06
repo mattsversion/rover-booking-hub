@@ -17,6 +17,7 @@ model Booking {
   clientPhone String?
   roverRelay  String?
   clientEmail String?
+  changes   ChangeRequest[]
   // removed Json field (use Pet table instead):
   // pets        Json?
   dogsCount   Int      @default(1)
@@ -114,4 +115,18 @@ model Client {
 
   // back-reference (one-to-many)
   bookings Booking[]
+}
+
+model ChangeRequest {
+  id         String   @id @default(cuid())
+  bookingId  String
+  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  oldStartAt DateTime
+  oldEndAt   DateTime
+  newStartAt DateTime
+  newEndAt   DateTime
+  status     String   @default("PENDING") // PENDING | ACCEPTED | DECLINED
+  createdAt  DateTime @default(now())
+  decidedAt  DateTime?
 }

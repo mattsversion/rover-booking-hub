@@ -215,6 +215,33 @@ webhooks.post('/sms-forward', async (req, res) => {
       }
     }
 
+        // If there is an open booking thread and the message contains a new range, detect change request
+    let createdChange = null;
+    if (openThread && segments.length) {
+      const seg = segments[0];
+      const curStart = new Date(openThread.startAt);
+      const curEnd   = new Date(openThread.endAt);
+
+      const diffStart = Math.abs(curStart - seg.startAt);
+      const diffEnd   = Math.abs(curEnd   - seg.endAt);
+
+      // consider it a change if either side differs by > 1 minute
+      if (diffStart > 60_000 || diffEnd > 60_000) {
+        createdChange = await prisma.changeRequest.create({
+          data: {
+            bookingId: openThread.id,
+            oldStartAt: curStart,
+            oldEndAt:   curEnd,
+            newStartAt: seg.startAt,
+            newEndAt:   seg.endAt,
+            status: 'PENDING'
+          }
+        });
+        bookingId = openThread.id; // the message still threads to the same booking
+      }
+    }
+
+
 
     // Store the inbound message (bookingId may be null)
     const extractedDatesJson = JSON.stringify(
@@ -242,7 +269,7 @@ webhooks.post('/sms-forward', async (req, res) => {
         classifyLabel,
         classifyScore,
         extractedJson,
-        bookingId
+        bookingId,
       }
     });
 
