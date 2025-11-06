@@ -44,6 +44,92 @@ function yearInfer(ref, mm, dd) {
   return d < sevenDaysAgo ? y + 1 : y;
 }
 
+// ===== Natural-language helpers =====
+const WEEKDAYS = { sun:0, sunday:0, mon:1, monday:1, tue:2, tues:2, tuesday:2, wed:3, weds:3, wednesday:3, thu:4, thur:4, thurs:4, thursday:4, fri:5, friday:5, sat:6, saturday:6 };
+
+function clone(d){ return new Date(d.getTime()); }
+function startOfDay(d){ const x = clone(d); x.setHours(0,0,0,0); return x; }
+function endOfDay(d){ const x = clone(d); x.setHours(23,59,59,999); return x; }
+
+function addDays(d, n){ const x = clone(d); x.setDate(x.getDate()+n); return x; }
+function setHM(d,h=17,m=0){ const x = clone(d); x.setHours(h,m,0,0); return x; }
+
+function nextWeekday(ref, wd) {
+  const x = startOfDay(ref);
+  const cur = x.getDay();
+  const diff = (wd - cur + 7) % 7 || 7; // always future (>=1 day)
+  return addDays(x, diff);
+}
+
+function thisOrNextWeekday(ref, wd) {
+  const x = startOfDay(ref);
+  const cur = x.getDay();
+  const diff = (wd - cur + 7) % 7;
+  return addDays(x, diff);
+}
+
+function weekSpan(ref, which /* 'this'|'next' */) {
+  // Mon..Sun weeks (common for scheduling)
+  const x = startOfDay(ref);
+  const day = x.getDay();
+  const mondayOffset = (day === 0 ? -6 : 1 - day); // go to Monday of this week
+  let start = addDays(x, mondayOffset);
+  if (which === 'next') start = addDays(start, 7);
+  const end = addDays(start, 6);
+  return { start, end };
+}
+
+// nth weekday of a month: e.g., 4th Thursday of November (Thanksgiving)
+function nthWeekdayOfMonth(year, monthIndex, weekday, n) {
+  const first = new Date(year, monthIndex, 1);
+  const firstWd = first.getDay();
+  const offset = (weekday - firstWd + 7) % 7;
+  const day = 1 + offset + 7*(n-1);
+  return new Date(year, monthIndex, day);
+}
+
+// US holiday resolver (observed **date**, not time) — extend as needed
+function usHolidays(year) {
+  const y = year;
+  const newYearsDay = new Date(y, 0, 1);
+  const mlkDay = nthWeekdayOfMonth(y, 0, 1, 3);   // 3rd Monday Jan
+  const presidentsDay = nthWeekdayOfMonth(y, 1, 1, 3); // 3rd Monday Feb
+  const memorialDay = (()=>{ // last Monday May
+    const last = new Date(y, 4, 31);
+    const d = last.getDay();
+    return addDays(last, -((d+6)%7));
+  })();
+  const independenceDay = new Date(y, 6, 4);
+  const laborDay = nthWeekdayOfMonth(y, 8, 1, 1); // 1st Monday Sep
+  const columbusDay = nthWeekdayOfMonth(y, 9, 1, 2); // 2nd Monday Oct
+  const halloween = new Date(y, 9, 31);
+  const thanksgiving = nthWeekdayOfMonth(y, 10, 4, 4); // 4th Thu Nov
+  const christmasEve = new Date(y, 11, 24);
+  const christmas = new Date(y, 11, 25);
+  const newYearsEve = new Date(y, 11, 31);
+
+  return {
+    "new year": newYearsDay,
+    "new year's": newYearsDay,
+    "new year's day": newYearsDay,
+    "new year's eve": newYearsEve,
+    "christmas": christmas,
+    "christmas day": christmas,
+    "christmas eve": christmasEve,
+    "thanksgiving": thanksgiving,
+    "halloween": halloween,
+    "memorial day": memorialDay,
+    "independence day": independenceDay,
+    "labor day": laborDay,
+    "columbus day": columbusDay,
+    "mlk day": mlkDay,
+    "presidents day": presidentsDay
+  };
+}
+
+
+
+
 // ---------- time helpers ----------
 function parseTimeToken(tok) {
   const m = String(tok).toLowerCase().match(/~?\s*(\d{1,2})(?::|\.|h)?(\d{2})?\s*(a|p)?m?\b/);
@@ -134,49 +220,238 @@ function scanDateTokens(text, ref = new Date()) {
 
 // ---------- segment builder ----------
 // returns array of segments: [{startAt,endAt, serviceHint}]
+// returns array of segments: [{startAt,endAt, serviceHint}]
+// returns array of segments: [{startAt,endAt, serviceHint}]
 export function parseSegments(text, ref = new Date()) {
-  const toks = scanDateTokens(text, ref);
-  const times = extractDropPickTimes(text);
-
-  // Split by commas/ semicolons/ "and" to allow "12-15-2025, 12-24-2025 to 12-30-2025"
-  // We'll build pairs when we see “to/–/hasta/al” after a date.
   const segs = [];
+  const src = String(text || '').trim();
+  if (!src) return segs;
+
+  const norm = src
+    .replace(/\u2013|\u2014/g, '-')     // –— -> -
+    .replace(/\s+to\s+/gi, ' to ')
+    .replace(/\s+through\s+/gi, ' through ')
+    .replace(/\s+until\s+/gi, ' until ')
+    .replace(/\s+till\s+/gi, ' till ');
+
+  // local helpers
+  function mk(y,m,d,t){
+    const dt = new Date(y,m,d);
+    if (t?.h != null) dt.setHours(t.h, t.min||0, 0, 0);
+    else dt.setHours(17,0,0,0);
+    return dt;
+  }
+  function spanHint(a,b){
+    const days = Math.round((b - a) / (24*60*60*1000));
+    return days >= 1 ? 'Overnight' : 'Daycare';
+  }
+  const times = extractDropPickTimes(src);
+
+  // ---------- A) explicit Rover-style: mm/dd[/yy] <connector> mm/dd[/yy] ----------
+  const rxFast = /\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\s*(?:to|through|thru|until|till|a|hasta|al|-\s*|\s*-\s*)\s*(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/i;
+  const mFast = norm.match(rxFast);
+  if (mFast) {
+    const [ , m1, d1, y1, m2, d2, y2 ] = mFast;
+    const mm1 = +m1 - 1, dd1 = +d1;
+    const mm2 = +m2 - 1, dd2 = +d2;
+    const Y1 = y1 ? (+y1 < 100 ? 2000 + +y1 : +y1) : yearInfer(ref, mm1, dd1);
+    const Y2 = y2 ? (+y2 < 100 ? 2000 + +y2 : +y2) : yearInfer(ref, mm2, dd2);
+    const startAt = mk(Y1, mm1, dd1, times?.start || null);
+    const endAt   = mk(Y2, mm2, dd2, times?.end   || null);
+    if (endAt < startAt) endAt.setDate(endAt.getDate() + 1);
+    segs.push({ startAt, endAt, serviceHint: spanHint(startAt, endAt) });
+    return segs;
+  }
+
+  // ---------- B) Relative single-day: today / tomorrow / tonight ----------
+  if (/\btoday\b/i.test(norm)) {
+    const s = setHM(startOfDay(ref), times?.start?.h ?? 17, times?.start?.min ?? 0);
+    const e = setHM(startOfDay(ref), times?.end?.h ?? 17, times?.end?.min ?? 0);
+    segs.push({ startAt: s, endAt: (e < s ? addDays(e,1) : e), serviceHint: spanHint(s,(e<s?addDays(e,1):e)) });
+    return segs;
+  }
+  if (/\btonight\b/i.test(norm)) {
+    const base = clone(ref);
+    const s = setHM(base, 19, 0); // 7pm tonight
+    const e = addDays(setHM(base, 8, 0), 1); // 8am tomorrow
+    segs.push({ startAt: s, endAt: e, serviceHint: spanHint(s,e) });
+    return segs;
+  }
+  if (/\btomorrow\b/i.test(norm)) {
+    const tmr = addDays(startOfDay(ref), 1);
+    const s = setHM(tmr, times?.start?.h ?? 17, times?.start?.min ?? 0);
+    const e = setHM(tmr, times?.end?.h ?? 17, times?.end?.min ?? 0);
+    segs.push({ startAt: s, endAt: (e < s ? addDays(e,1) : e), serviceHint: spanHint(s,(e<s?addDays(e,1):e)) });
+    return segs;
+  }
+
+  // ---------- C) Weeks: "this week", "next week" ----------
+  const wk = norm.match(/\b(this|next)\s+week\b/i);
+  if (wk) {
+    const which = wk[1].toLowerCase();
+    const { start, end } = weekSpan(ref, which);
+    const s = setHM(start, times?.start?.h ?? 9, times?.start?.min ?? 0);
+    const e = setHM(end,   times?.end?.h ?? 17, times?.end?.min ?? 0);
+    segs.push({ startAt: s, endAt: e, serviceHint: spanHint(s,e) });
+    return segs;
+  }
+
+  // ---------- D) Weekends ----------
+  // "this weekend" -> Fri 5pm .. Sun 5pm; "next weekend" similar
+  const wknd = norm.match(/\b(this|next)\s+(long\s+)?weekend\b/i);
+  if (wknd) {
+    const which = wknd[1].toLowerCase();
+    const isLong = !!wknd[2];
+    // compute the Friday (this or next)
+    let fri = thisOrNextWeekday(ref, 5);
+    if (which === 'next') fri = nextWeekday(ref, 5);
+    const start = setHM(fri, 17, 0);
+    let endBase = addDays(fri, isLong ? 3 : 2); // long weekend -> through Monday
+    const end = setHM(endBase, 17, 0);
+    segs.push({ startAt: start, endAt: end, serviceHint: spanHint(start,end) });
+    return segs;
+  }
+
+  // "fri-sun", "saturday to monday", "thu–sat"
+  const wdRange = norm.match(new RegExp(`\\b(${Object.keys(WEEKDAYS).join('|')})\\s*(?:to|-)\\s*(${Object.keys(WEEKDAYS).join('|')})\\b`, 'i'));
+  if (wdRange) {
+    const a = WEEKDAYS[wdRange[1].toLowerCase()];
+    const b = WEEKDAYS[wdRange[2].toLowerCase()];
+    const startW = thisOrNextWeekday(ref, a);
+    let endW = thisOrNextWeekday(startW, b);
+    if (endW <= startW) endW = addDays(endW, 7);
+    const s = setHM(startW, times?.start?.h ?? 9, times?.start?.min ?? 0);
+    const e = setHM(endW,   times?.end?.h ?? 17, times?.end?.min ?? 0);
+    segs.push({ startAt: s, endAt: e, serviceHint: spanHint(s,e) });
+    return segs;
+  }
+
+  // "this friday", "next tuesday"
+  const singleWd = norm.match(new RegExp(`\\b(this|next)\\s+(${Object.keys(WEEKDAYS).join('|')})\\b`, 'i'));
+  if (singleWd) {
+    const which = singleWd[1].toLowerCase();
+    const wd = WEEKDAYS[singleWd[2].toLowerCase()];
+    const day = which === 'next' ? nextWeekday(ref, wd) : thisOrNextWeekday(ref, wd);
+    const s = setHM(day, times?.start?.h ?? 9, times?.start?.min ?? 0);
+    const e = setHM(day, times?.end?.h ?? 17, times?.end?.min ?? 0);
+    if (e <= s) e.setHours(s.getHours() + 8);
+    segs.push({ startAt: s, endAt: e, serviceHint: spanHint(s,e) });
+    return segs;
+  }
+
+  // ---------- E) Holidays ----------
+  const holWords = [
+    "new year", "new year's", "new year's day", "new year's eve",
+    "christmas", "christmas day", "christmas eve",
+    "thanksgiving", "halloween", "memorial day", "independence day",
+    "labor day", "columbus day", "mlk day", "presidents day"
+  ];
+  const holRx = new RegExp(`\\b(${holWords.map(w=>w.replace(/[\s']/g, m=> m===' ' ? '\\s+' : m)).join('|')})\\b`, 'i');
+  const mh = norm.match(holRx);
+  if (mh) {
+    const yNow = ref.getFullYear();
+    let day = usHolidays(yNow)[mh[1].toLowerCase()];
+    if (!day || day < addDays(ref,-7)) { // if it looks past, try next year
+      day = usHolidays(yNow+1)[mh[1].toLowerCase()];
+    }
+    if (day) {
+      const s = setHM(day, times?.start?.h ?? 9, times?.start?.min ?? 0);
+      const e = setHM(day, times?.end?.h ?? 17, times?.end?.min ?? 0);
+      if (e <= s) e.setHours(s.getHours() + 8);
+      segs.push({ startAt: s, endAt: e, serviceHint: spanHint(s,e) });
+      return segs;
+    }
+  }
+
+  // ---------- F) "first weekend of dec" / "2nd weekend of november" ----------
+  const wkendOf = norm.match(new RegExp(`\\b(\\d+(?:st|nd|rd|th)|first|second|third|fourth)\\s+weekend\\s+of\\s+(${MONTH_RX})\\b`, 'i'));
+  if (wkendOf) {
+    const ordWord = wkendOf[1].toLowerCase();
+    const ordMap = { first:1, second:2, third:3, fourth:4 };
+    const n = ordMap[ordWord] || parseInt(ordWord,10);
+    const mm = monoMonth(wkendOf[2]);
+    const y = ref.getFullYear();
+    // find the nth Saturday of that month (weekend = Sat..Sun)
+    const firstOfMonth = new Date(y, mm, 1);
+    let count = 0, sat = null;
+    for (let d=1; d<=31; d++){
+      const dt = new Date(y, mm, d);
+      if (dt.getMonth() !== mm) break;
+      if (dt.getDay() === 6) { // Saturday
+        count++;
+        if (count === n) { sat = dt; break; }
+      }
+    }
+    if (sat) {
+      const sun = addDays(sat, 1);
+      const s = setHM(sat, 9, 0);
+      const e = setHM(sun, 17, 0);
+      segs.push({ startAt: s, endAt: e, serviceHint: spanHint(s,e) });
+      return segs;
+    }
+  }
+
+  // ---------- G) “this month on the 19th”, “next month 12-19”, “first of dec” ----------
+  const relMonthMatch = norm.match(/\b(this|next)\s+month\b/i);
+  if (relMonthMatch) {
+    const which = relMonthMatch[1].toLowerCase();
+    const base  = new Date(ref);
+    if (which === 'next') base.setMonth(base.getMonth()+1);
+    const Y = base.getFullYear(), M = base.getMonth();
+
+    const mRange = norm.match(/\bmonth[^0-9]*(\d{1,2})\s*[-]\s*(\d{1,2})\b/i);
+    if (mRange) {
+      const d1 = +mRange[1], d2 = +mRange[2];
+      const s = mk(Y,M,d1,times?.start||null);
+      const e = mk(Y,M,d2,times?.end||null);
+      if (e < s) e.setDate(e.getDate()+1);
+      segs.push({ startAt:s, endAt:e, serviceHint: spanHint(s,e) });
+      return segs;
+    }
+    const mDay = norm.match(/\bon\s+the\s+(\d{1,2})(?:st|nd|rd|th)?\b/i) || norm.match(/\bmonth[^0-9]*(\d{1,2})\b/i);
+    if (mDay) {
+      const d = +mDay[1];
+      const s = mk(Y,M,d,times?.start||null);
+      const e = mk(Y,M,d,times?.end||null);
+      if (e < s) e.setDate(e.getDate()+1);
+      segs.push({ startAt:s, endAt:e, serviceHint: spanHint(s,e) });
+      return segs;
+    }
+  }
+  const mFirst = norm.match(new RegExp(`\\b(first|1st)\\s+of\\s+(${MONTH_RX})\\b`, 'i'));
+  if (mFirst) {
+    const mm = monoMonth(mFirst[2]);
+    const yy = yearInfer(ref, mm, 1);
+    const s = mk(yy,mm,1,times?.start||null);
+    const e = mk(yy,mm,1,times?.end||null);
+    segs.push({ startAt:s, endAt:e, serviceHint: spanHint(s,e) });
+    return segs;
+  }
+
+  // ---------- H) Fallback: your robust token scanner (“Dec 12–27”, “13–18 de Noviembre”, etc.) ----------
+  const toks = scanDateTokens(norm, ref);
   if (!toks.length) return segs;
 
-  // Greedy range builder: walk tokens in order, pair them if a connector "to" is nearby,
-  // otherwise make a single-day segment.
-  const connectors = new RegExp(`\\b(?:to|a|hasta|al|through|thru|–|—|-)\\b`, 'i');
-  const textLower = text.toLowerCase();
+  const connectors = new RegExp(`\\b(?:to|a|hasta|al|through|thru|until|till|-)\\b`, 'i');
+  const lower = norm.toLowerCase();
 
   for (let i = 0; i < toks.length; i++) {
     const a = toks[i];
     let b = null;
-
-    // look ahead one token; if a connector exists in between, treat a..b as a range
     if (i + 1 < toks.length) {
-      const between = textLower.slice(toks[i].idx, toks[i+1].idx + 1);
-      if (connectors.test(between)) {
-        b = toks[i+1];
-        i++; // consume next
-      }
+      const between = lower.slice(toks[i].idx, toks[i+1].idx + 1);
+      if (connectors.test(between)) { b = toks[i+1]; i++; }
     }
-
-    const startAt = new Date(a.yy, a.mm, a.dd);
-    const endAt   = new Date(b ? b.yy : a.yy, b ? b.mm : a.mm, b ? b.dd : a.dd);
-
-    if (times?.start) startAt.setHours(times.start.h, times.start.min, 0, 0);
-    if (times?.end)   endAt.setHours(times.end.h,   times.end.min,   0, 0);
-    if (!times?.start && !times?.end) { startAt.setHours(17,0,0,0); endAt.setHours(17,0,0,0); }
+    const startAt = mk(a.yy, a.mm, a.dd, times?.start || null);
+    const endAt   = mk(b ? b.yy : a.yy, b ? b.mm : a.mm, b ? b.dd : a.dd, times?.end || null);
     if (endAt < startAt) endAt.setDate(endAt.getDate() + 1);
-
-    const spanDays = Math.round((endAt - startAt) / (24*60*60*1000));
-    const serviceHint = spanDays >= 1 ? 'Overnight' : 'Daycare';
-
-    segs.push({ startAt, endAt, serviceHint });
+    segs.push({ startAt, endAt, serviceHint: spanHint(startAt,endAt) });
   }
 
   return segs;
 }
+
+
 
 export function pickDateRange(text, ref = new Date()) {
   const segs = parseSegments(text, ref);
