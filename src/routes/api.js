@@ -296,14 +296,16 @@ function formatRange(startAt, endAt){
 
 /* ---------------- Edit / availability ---------------- */
 api.patch('/bookings/:id', async (req, res) => {
-  const { startAt, endAt, serviceType, dogsCount, notes } = req.body;
+  // ADD contactLabel here ⬇️
+  const { startAt, endAt, serviceType, dogsCount, notes, contactLabel } = req.body;
+
   const updated = await prisma.booking.update({
     where: { id: req.params.id },
     data: {
       serviceType: serviceType ?? undefined,
       dogsCount: dogsCount ? Number(dogsCount) : undefined,
       notes: notes ?? undefined,
-      contactLabel: contactLabel ?? undefined,
+      contactLabel: contactLabel ?? undefined, // now defined ✅
       ...(startAt ? { startAt: new Date(startAt) } : {}),
       ...(endAt   ? { endAt:   new Date(endAt)   } : {}),
     }
