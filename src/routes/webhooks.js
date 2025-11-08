@@ -37,6 +37,21 @@ function normPhone(p) {
   return digits || null;
 }
 
+// Detect Rover automated request notifications we want to ignore completely
+function isRoverAuto(body) {
+  const b = String(body || '').trim();
+
+  // Pattern A: "[ New booking request (dog boarding) from X: ... Book @ r.rover.com/XYZ ]"
+  const hasRoverLink = /\br\.rover\.com\/[A-Za-z0-9]+/i.test(b);
+  const looksLikeNewReq = /\bNew booking request\b/i.test(b);
+
+  // Pattern B: "Boarding Request - One Time: Drop-off: Fri, Nov 07 ... Pick-up: Sat, Nov 08 ..."
+  const looksLikeOneTime = /^Boarding Request\s*-\s*One Time:/i.test(b)
+    && /\bDrop-?off:/i.test(b) && /\bPick-?up:/i.test(b);
+
+  return (hasRoverLink && looksLikeNewReq) || looksLikeOneTime;
+}
+
 
 // Persisted subscriptions (JSON file; db table is fine too)
 const __filename = fileURLToPath(import.meta.url);
@@ -92,6 +107,13 @@ webhooks.post('/sms-forward', async (req, res) => {
       from = req.query.from; body = req.query.body; timestamp = req.query.timestamp;
     }
     if (!from || !body) return res.status(400).json({ error: 'Missing fields' });
+
+    // >>> add this right after `if (!from || !body) ...`
+if (isRoverAuto(body)) {
+  // ignore these completely: no message, no booking
+  return res.json({ ok: true, ignored: 'rover_auto_notice' });
+}
+
 
     const receivedAt = new Date(Number(timestamp) || Date.now());
 
@@ -184,6 +206,7 @@ webhooks.post('/sms-forward', async (req, res) => {
               source: body.includes('r.rover.com') ? 'Rover' : 'SMS',
               clientName: roverMeta.ownerName || from,
               clientPhone: from,
+              contactLabel: roverMeta.ownerName || null,
               roverRelay: from.includes('r.rover.com') ? from : null,
               serviceType: inferredSvc,
               startAt: seg.startAt,
