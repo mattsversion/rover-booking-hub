@@ -9,7 +9,9 @@ const KEYWORDS = [
   'drop in','drop-in','dropin','drop off','dropoff','pick up','pickup',
   // spanish cues
   'cuidar','cuidado','hospedaje','hospedar','guardería','guarderia',
-  'paseo','pasear','desde','hasta','dejar','recoger'
+  'paseo','pasear','desde','hasta','dejar','recoger',
+  // seasonal / travel cues that often imply bookings
+  'thanksgiving','christmas','holiday','travel'
 ];
 export function findKeywords(text='') {
   const t = text.toLowerCase();
@@ -37,7 +39,7 @@ function monoMonth(m) {
 }
 
 function yearInfer(ref, mm, dd) {
-  // your rule: if no year, assume current year; if that date is >7 days in the past, bump to next year
+  // rule: if no year, assume current year; if that date is >7 days in the past, bump to next year
   const y = ref.getFullYear();
   const d = new Date(y, mm, dd);
   const sevenDaysAgo = new Date(ref.getTime() - 7*24*60*60*1000);
@@ -127,8 +129,34 @@ function usHolidays(year) {
   };
 }
 
+// map a holiday mention in text to a concrete {year, monthIndex} anchor
+function holidayContextMonth(text = '', ref = new Date()) {
+  const t = text.toLowerCase();
+  const names = [
+    "thanksgiving","christmas","christmas day","christmas eve",
+    "new year","new year's","new year's day","new year's eve",
+    "halloween","mlk day","presidents day","memorial day",
+    "independence day","labor day","columbus day"
+  ];
+  const hit = names.find(n => t.includes(n));
+  if (!hit) return null;
+  const y0 = ref.getFullYear();
+  // prefer the *upcoming* occurrence of that holiday
+  let d = usHolidays(y0)[hit];
+  if (!d || d < ref) d = usHolidays(y0 + 1)[hit];
+  if (!d) return null;
+  return { year: d.getFullYear(), month: d.getMonth() };
+}
 
-
+// coarse day-part → hour mapping
+function dayPartToHour(word /* 'morning'|'afternoon'|'evening'|'night' */) {
+  const w = (word||'').toLowerCase();
+  if (w.includes('morning'))   return 9;
+  if (w.includes('afternoon')) return 14;
+  if (w.includes('evening'))   return 18;
+  if (w.includes('night'))     return 20;
+  return 17; // default 5pm
+}
 
 // ---------- time helpers ----------
 function parseTimeToken(tok) {
@@ -220,8 +248,6 @@ function scanDateTokens(text, ref = new Date()) {
 
 // ---------- segment builder ----------
 // returns array of segments: [{startAt,endAt, serviceHint}]
-// returns array of segments: [{startAt,endAt, serviceHint}]
-// returns array of segments: [{startAt,endAt, serviceHint}]
 export function parseSegments(text, ref = new Date()) {
   const segs = [];
   const src = String(text || '').trim();
@@ -246,6 +272,10 @@ export function parseSegments(text, ref = new Date()) {
     return days >= 1 ? 'Overnight' : 'Daycare';
   }
   const times = extractDropPickTimes(src);
+
+  // detect optional day-parts near each side of a range: "morning of the 27th ... to ... morning of the 28th"
+  const leftPart  = (src.match(/(morning|afternoon|evening|night)[^]{0,40}?\b(?:of\s+)?(?:the\s+)?\d{1,2}(?:st|nd|rd|th)\b/i) || [])[1] || null;
+  const rightPart = (src.match(/\bto\b[^]{0,80}?(morning|afternoon|evening|night)/i) || [])[1] || null;
 
   // ---------- A) explicit Rover-style: mm/dd[/yy] <connector> mm/dd[/yy] ----------
   const rxFast = /\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\s*(?:to|through|thru|until|till|a|hasta|al|-\s*|\s*-\s*)\s*(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/i;
@@ -428,8 +458,18 @@ export function parseSegments(text, ref = new Date()) {
     return segs;
   }
 
-  // ---------- H) Fallback: your robust token scanner (“Dec 12–27”, “13–18 de Noviembre”, etc.) ----------
-  const toks = scanDateTokens(norm, ref);
+  // ---------- H) Fallback: robust token scanner + holiday-anchored bare ordinals ----------
+  let toks = scanDateTokens(norm, ref);
+
+  // If we didn't find explicit month tokens, try bare ordinals anchored by a holiday in the same message.
+  if (!toks.length) {
+    const anchor = holidayContextMonth(src, ref);
+    const ords = [...norm.matchAll(/\b(\d{1,2})(?:st|nd|rd|th)\b/g)].map(m => +m[1]).filter(d => d>=1 && d<=31);
+    if (anchor && ords.length) {
+      toks = ords.map((dd,i) => ({ mm: anchor.month, dd, yy: anchor.year, idx: i }));
+    }
+  }
+
   if (!toks.length) return segs;
 
   const connectors = new RegExp(`\\b(?:to|a|hasta|al|through|thru|until|till|-)\\b`, 'i');
@@ -442,16 +482,16 @@ export function parseSegments(text, ref = new Date()) {
       const between = lower.slice(toks[i].idx, toks[i+1].idx + 1);
       if (connectors.test(between)) { b = toks[i+1]; i++; }
     }
-    const startAt = mk(a.yy, a.mm, a.dd, times?.start || null);
-    const endAt   = mk(b ? b.yy : a.yy, b ? b.mm : a.mm, b ? b.dd : a.dd, times?.end || null);
+    const startH = times?.start?.h ?? dayPartToHour(leftPart || '');
+    const endH   = times?.end?.h   ?? dayPartToHour(rightPart || '');
+    const startAt = mk(a.yy, a.mm, a.dd, { h: startH, min: times?.start?.min ?? 0 });
+    const endAt   = mk(b ? b.yy : a.yy, b ? b.mm : a.mm, b ? b.dd : a.dd, { h: endH, min: times?.end?.min ?? 0 });
     if (endAt < startAt) endAt.setDate(endAt.getDate() + 1);
-    segs.push({ startAt, endAt, serviceHint: spanHint(startAt,endAt) });
+    segs.push({ startAt, endAt, serviceHint: spanHint(startAt, endAt) });
   }
 
   return segs;
 }
-
-
 
 export function pickDateRange(text, ref = new Date()) {
   const segs = parseSegments(text, ref);
@@ -526,7 +566,8 @@ export async function reparseAll(prisma, opts = {}) {
 
     const keywords = findKeywords(body);
     const range    = pickDateRange(body, receivedAt);
-    const isCandidate = keywords.length > 0 && !!range;
+    // accept date-only or keyword-only as candidates (date-only is the main win here)
+    const isCandidate = !!range || keywords.length > 0;
 
     // update message extracted fields
     await prisma.message.update({
