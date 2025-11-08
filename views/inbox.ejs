@@ -33,35 +33,29 @@
 </div>
 
 <%
-/* ---------- helpers shared by all tabs ---------- */
-// preferred display name while scrolling cards
-function displayName(b){
-  return b.contactLabel || b.clientName || b.clientPhone || b.roverRelay || '—';
-}
-// raw handle to show/copy just under the title
-function displayHandle(b){
-  return b.clientPhone || b.roverRelay || '';
-}
+  // helper for 2-line name/number row label
+  function topLabel(b){
+    const label = b.contactLabel?.trim();
+    const idline = (b.clientPhone || b.roverRelay || '—');
+    if (label && label.length) {
+      return `<div style="font-weight:700;">${b.clientName}</div>
+              <div class="muted" style="font-size:12px;">${label} · ${idline}</div>`;
+    }
+    return `<div style="font-weight:700;">${b.clientName}</div>
+            <div class="muted" style="font-size:12px;">${idline}</div>`;
+  }
 %>
 
 <!-- ===== Inline helper to render a booking card (server-side EJS) ===== -->
-<% function card(b){
-     const last = (b.messages||[])[0]; // assuming controller gives newest first; ok to keep
+<% function card(b, contextTab){
+     const last = (b.messages||[])[0];
+     const now = new Date();
+     const ended = new Date(b.endAt) < now;
 %>
-  <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start;">
+  <a class="row card" href="/booking/<%= b.id %>" style="align-items:flex-start; position:relative;">
     <div style="flex:1;">
-      <!-- title uses contactLabel/name/phone/relay -->
-      <div style="font-weight:700;"><%= displayName(b) %></div>
-
-      <!-- show raw number/relay + quick copy -->
-      <% if (displayHandle(b)) { %>
-        <div class="muted" style="margin-top:4px;display:flex;gap:8px;align-items:center;">
-          <span><%= displayHandle(b) %></span>
-          <button class="ghost" type="button" onclick="copyNumber('<%= displayHandle(b) %>')">Copy</button>
-        </div>
-      <% } %>
-
-      <div class="muted"><b>Service:</b> <%= b.serviceType || '—' %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
+      <div><%- topLabel(b) %></div>
+      <div class="muted"><b>Service:</b> <%= b.serviceType %> • <b>Dogs:</b> <%= b.dogsCount || 1 %></div>
       <div class="muted"><%= new Date(b.startAt).toLocaleString() %> → <%= new Date(b.endAt).toLocaleString() %></div>
 
       <% if (last) { %>
@@ -69,6 +63,16 @@ function displayHandle(b){
         <% if (last.body) { %>
           <div style="margin-top:2px;"><%= last.body.slice(0,160) %></div>
         <% } %>
+      <% } %>
+
+      <% if (contextTab === 'booked' && b.status === 'CONFIRMED' && ended) { %>
+        <div class="card" style="margin-top:8px;background:#f8f9ff;border:1px solid #e1e4ff;">
+          <div class="muted" style="margin-bottom:6px;">This booking has ended. Delete it from the site?</div>
+          <div class="actions" style="gap:8px;">
+            <button class="danger" type="button" onclick="return delBooking('<%= b.id %>')">Delete</button>
+            <button class="ghost" type="button" onclick="event.preventDefault(); event.stopPropagation();">Keep</button>
+          </div>
+        </div>
       <% } %>
     </div>
 
@@ -89,7 +93,7 @@ function displayHandle(b){
       <% if (!unread.length) { %>
         <div class="card muted">No unread conversations.</div>
       <% } %>
-      <% unread.forEach(b => { %><% card(b) %><% }) %>
+      <% unread.forEach(b => { %><% card(b, 'unread') %><% }) %>
     </div>
   </div>
 
@@ -100,7 +104,7 @@ function displayHandle(b){
       <% if (!pending.length) { %>
         <div class="card muted">Nothing pending.</div>
       <% } %>
-      <% pending.forEach(b => { %><% card(b) %><% }) %>
+      <% pending.forEach(b => { %><% card(b, 'pending') %><% }) %>
     </div>
   </div>
 
@@ -111,7 +115,7 @@ function displayHandle(b){
       <% if (!booked.length) { %>
         <div class="card muted">No upcoming bookings.</div>
       <% } %>
-      <% booked.forEach(b => { %><% card(b) %><% }) %>
+      <% booked.forEach(b => { %><% card(b, 'booked') %><% }) %>
     </div>
   </div>
 </div>
@@ -123,13 +127,7 @@ function displayHandle(b){
 
 <!-- ===== Notifications + tabs JS ===== -->
 <script>
-  // quick copy
-  function copyNumber(num){
-    if(!num) return;
-    navigator.clipboard.writeText(num).then(()=>alert('Number copied'));
-  }
-
-  // --- Background polling (still useful alongside true push)
+  // background polling
   let lastMessageTime = 0;
   async function checkForNewMessages(){
     try {
@@ -159,7 +157,7 @@ function displayHandle(b){
   }
   setInterval(checkForNewMessages, 10000);
 
-  // --- Segmented tabs (client-side)
+  // tabs
   const btns = document.querySelectorAll('.segmented button');
   const panels = {
     unread:  document.getElementById('tab-unread'),
@@ -181,4 +179,14 @@ function displayHandle(b){
   }
   btns.forEach(b=> b.addEventListener('click', ()=> setActiveTab(b.dataset.tab)));
   setActiveTab('<%= (tab||"unread") %>');
+
+  // delete (inline, no navigation)
+  async function delBooking(id){
+    if(!confirm('Delete this booking? This cannot be undone.')) return false;
+    const res = await fetch('/api/bookings/' + id, { method:'DELETE' });
+    const data = await res.json().catch(()=> ({}));
+    if(!res.ok){ alert(data.error || 'Delete failed'); return false; }
+    location.reload();
+    return false;
+  }
 </script>

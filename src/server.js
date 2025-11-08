@@ -56,7 +56,7 @@ app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOStr
 app.use('/clients', clientsRouter);
 app.use('/webhooks', webhooks);
 app.use('/api', api);
-app.use('/', requireAuth, exportsRouter);
+app.use('/', exportsRouter);
 
 
 const STORAGE_DIR = process.env.STORAGE_DIR || path.join(__dirname, '../storage');
